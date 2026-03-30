@@ -3,8 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-jg
-# 设置绘图风格（本科生进阶：使用更现代化的图表风格）
+
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_context("notebook", font_scale=1.1)
 
@@ -42,7 +41,7 @@ def plot_temporal_interaction(df: pd.DataFrame, plot_dir: Path):
     axes[1].set_ylabel('Return Volume')
     
     plt.tight_layout()
-    plt.savefig(plot_dir / "temporal_interaction_effects.png", dpi=300)
+    plt.savefig(plot_dir / "official_temporal_interaction_effects.png", dpi=300)
     plt.close()
 
 def plot_environmental_impact(df: pd.DataFrame, plot_dir: Path):
@@ -61,11 +60,19 @@ def plot_environmental_impact(df: pd.DataFrame, plot_dir: Path):
     axes[0].set_title('Temperature vs. Rent Volume (8:00-20:00)')
     
     # 降雨量等级与借出量的关系
-    sns.boxplot(data=df, x='rain_level', y='rent', palette="Blues", ax=axes[1])
+    sns.boxplot(
+        data=df,
+        x='rain_level',
+        y='rent',
+        hue='rain_level',
+        palette="Blues",
+        legend=False,
+        ax=axes[1]
+    )
     axes[1].set_title('Rain Level Impact on Rent Volume')
     
     plt.tight_layout()
-    plt.savefig(plot_dir / "environmental_impact.png", dpi=300)
+    plt.savefig(plot_dir / "official_environmental_impact.png", dpi=300)
     plt.close()
 
 def plot_feature_correlations(df: pd.DataFrame, plot_dir: Path):
@@ -87,13 +94,13 @@ def plot_feature_correlations(df: pd.DataFrame, plot_dir: Path):
     plt.title('Spearman Correlation Matrix of Key Features')
     
     plt.tight_layout()
-    plt.savefig(plot_dir / "feature_correlation.png", dpi=300)
+    plt.savefig(plot_dir / "official_feature_correlation.png", dpi=300)
     plt.close()
 
 def main():
     # 设置路径
-    script_dir = Path.cwd()
-    data_file = script_dir / "swapping_data_test.csv" # 请确保文件与脚本在同级目录
+    script_dir = Path(__file__).resolve().parent
+    data_file = script_dir / "battery_swapping_routing_data.csv"
     plot_dir = script_dir / "EDA_Results"
     plot_dir.mkdir(exist_ok=True)
     
