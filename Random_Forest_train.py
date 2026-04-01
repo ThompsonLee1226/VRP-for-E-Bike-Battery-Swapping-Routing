@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [20000, 
-                  None
+                  #None
                   ]
 TRAINING_RESULTS_DIR = 'Training_Results_RF'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_RF_scale_{scale}_{ts}.csv'
@@ -24,7 +24,7 @@ EARLY_STOPPING_PATIENCE = 3
 EARLY_STOPPING_MIN_DELTA = 1e-4
 
 # ==========================================
-# 1. 工业级数据预处理管道 (Data Pipeline)
+# 1. 数据预处理管道 
 # ==========================================
 def load_and_preprocess(file_path, scale=None):
     """
@@ -126,7 +126,7 @@ def plot_training_progress(progress_df, target_name, scale_tag, run_timestamp):
     print(f"📈 随机森林训练进度图已保存: {fig_path}")
 
 # ==========================================
-# 2. 核心训练函数 (Training Engine - RF Version)
+# 2. 核心训练函数
 # ==========================================
 def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown'):
     """
@@ -299,17 +299,14 @@ def predict_on_test_data(models, feature_cols, test_file, output_file, h3_mappin
     print(f"✅ 测试集预测完成，结果已保存到: {output_file}")
 
 # ==========================================
-# 3. 任务执行流 (Main Pipeline)
+# 3. 任务执行流 
 # ==========================================
 if __name__ == "__main__":
     os.makedirs(TRAINING_RESULTS_DIR, exist_ok=True)
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
     print(f"本次训练时间戳: {run_timestamp}")
     
-    # 与 LightGBM 脚本保持一致：20k 试跑 + 全量训练
-    training_scales = [#20000, 
-                       None
-                       ]
+    training_scales = TRAINING_SCALE
     for scale in training_scales:
         if scale is None:
             input("\n⚠️ 准备进入随机森林全量训练阶段（已启用早停策略）。按回车开始...")

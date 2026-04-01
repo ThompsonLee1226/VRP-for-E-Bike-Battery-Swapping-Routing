@@ -8,7 +8,7 @@ import time
 import os
 import sys
 import warnings
-warnings.filterwarnings('ignore') # 忽略一些常规警告
+warnings.filterwarnings('ignore')
 
 # 统一管理输入输出文件名，方便后续修改与复用
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
@@ -16,7 +16,6 @@ TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [20000, 
                   None
                   ]
-
 TRAINING_RESULTS_DIR = 'Training_Results_LightGBM'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_DIR = TRAINING_RESULTS_DIR
