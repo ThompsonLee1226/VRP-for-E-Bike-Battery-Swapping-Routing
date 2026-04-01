@@ -18,8 +18,28 @@ TRAINING_SCALE = [20000,
                   ]
 TRAINING_RESULTS_DIR = 'Training_Results_LightGBM'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_scale_{scale}_{ts}.csv'
-PROGRESS_PLOT_DIR = TRAINING_RESULTS_DIR
 PROGRESS_PLOT_TEMPLATE = 'training_progress_{target}_{scale}_{ts}.png'
+
+# 统一管理训练超参数，便于集中调参
+TRAIN_VALID_TEST_SIZE = 0.2      # 验证集占比，越大评估更稳但训练样本更少
+TRAIN_VALID_RANDOM_STATE = 42    # 固定随机种子，保证每次切分可复现
+LGB_CATEGORICAL_FEATURES = ['h3'] # LightGBM 原生类别特征列
+
+LGB_PARAMS = {
+    'objective': 'regression',   # 回归任务
+    'metric': 'rmse',            # 验证指标：均方根误差
+    'boosting_type': 'gbdt',     # 梯度提升树
+    'learning_rate': 0.05,       # 学习率，越小通常越稳但需要更多轮
+    'num_leaves': 63,            # 单棵树复杂度，越大拟合能力越强
+    'feature_fraction': 0.8,     # 每轮采样特征比例，降低过拟合风险
+    'n_jobs': -1,                # 并行线程
+    'verbose': -1                
+}
+
+LGB_NUM_BOOST_ROUND = 2000       # 最大迭代轮数上限
+LGB_EARLY_STOPPING_ROUNDS = 50   # 验证集连续多少轮无提升则早停
+LGB_LOG_EVAL_PERIOD = 50         # 每多少轮打印一次评估日志
+LGB_PROGRESS_REFRESH_EVERY = 10  # 终端进度条刷新频率
 
 # ==========================================
 # 1. 工业级数据预处理管道 (Data Pipeline)
@@ -44,14 +64,14 @@ def load_and_preprocess(file_path, scale=None):
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
 
-    # B. 类别特征转换（LightGBM 的绝技，不需要做 One-Hot 编码）
+    # B. 类别特征转换
     if 'h3' in df.columns:
         df['h3'] = df['h3'].astype('category')
         
-    # C. 缺失值处理：分类列与数值列分开填充，避免 category 列 fillna(0) 报错
+    # C. 缺失值处理
     df = fill_missing_values(df)
 
-    # D. 定义特征集合（根据你的 EDA 优先级报告）
+    # D. 定义特征集合
     features = [
         'h3', 'temperature', 'wind_level', 'rain_level', 
         'month', 'day_of_week', 'is_weekend', 'hour',
@@ -93,7 +113,16 @@ def validate_required_columns(df, required_cols, dataset_name):
         )
 
 
-def plot_training_progress(eval_results, target_name, scale_tag, run_timestamp):
+def get_run_output_dir(run_timestamp):
+    """
+    基于运行时间戳创建并返回本次训练专属输出目录。
+    """
+    run_output_dir = os.path.join(TRAINING_RESULTS_DIR, run_timestamp)
+    os.makedirs(run_output_dir, exist_ok=True)
+    return run_output_dir
+
+
+def plot_training_progress(eval_results, target_name, scale_tag, run_timestamp, run_output_dir):
     """
     将训练过程中的 RMSE 变化可视化并保存为图片。
     目的：快速观察是否收敛、是否过拟合（训练集下降而验证集不降）。
@@ -108,9 +137,8 @@ def plot_training_progress(eval_results, target_name, scale_tag, run_timestamp):
         print(f"⚠️ 未捕获到 {target_name} 的训练过程指标，跳过可视化。")
         return
 
-    os.makedirs(PROGRESS_PLOT_DIR, exist_ok=True)
     fig_path = os.path.join(
-        PROGRESS_PLOT_DIR,
+        run_output_dir,
         PROGRESS_PLOT_TEMPLATE.format(target=target_name, scale=scale_tag, ts=run_timestamp)
     )
 
@@ -183,7 +211,7 @@ def create_progress_bar_callback(target_name, width=30, refresh_every=5):
 # ==========================================
 # 2. 核心训练函数 (Training Engine)
 # ==========================================
-def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown'):
+def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown', run_output_dir='.'):
     """
     针对指定目标（rent 或 return）训练 LightGBM
     """
@@ -198,24 +226,16 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     y = df[target_name]
 
     # 按时间顺序或随机拆分（这里使用随机拆分，保留20%作为验证集）
-    X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_valid, y_train, y_valid = train_test_split(
+        X,
+        y,
+        test_size=TRAIN_VALID_TEST_SIZE,
+        random_state=TRAIN_VALID_RANDOM_STATE
+    )
 
     # 封装成 LightGBM 专用的 Dataset 格式（能极大降低内存占用，提升速度）
-    train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=['h3'])
+    train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=LGB_CATEGORICAL_FEATURES)
     valid_data = lgb.Dataset(X_valid, label=y_valid, reference=train_data)
-
-    # 定义模型超参数
-    params = {
-        'objective': 'regression',      # 回归任务
-        'metric': 'rmse',               # 评估指标：均方根误差
-        'boosting_type': 'gbdt',        # 传统的梯度提升树
-        'learning_rate': 0.05,          # 学习率：步子迈得小一点，学得更稳
-        'num_leaves': 63,               # 叶子节点数：越大越容易过拟合，但学得越深 (默认31)
-        'feature_fraction': 0.8,        # 每次建树随机抽取80%特征 (防过拟合)
-        'n_jobs': -1,                   # 使用全部 CPU 核心
-        'verbose': -1                   # 关闭框架层面的冗余日志
-        # 'device': 'gpu'               # 如果你有配置好的GPU环境，取消这行注释可以起飞
-    }
 
     print(f"[{time.strftime('%H:%M:%S')}] 正在建树，请关注下方误差下降情况：")
 
@@ -224,21 +244,21 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     
     # 训练模型，并设置回调函数来观察进度
     model = lgb.train(
-        params,
+        LGB_PARAMS,
         train_data,
-        num_boost_round=1000, # 最大迭代次数（最多建1000棵树）
+        num_boost_round=LGB_NUM_BOOST_ROUND,
         valid_sets=[train_data, valid_data],
         valid_names=['训练集', '验证集'],
         callbacks=[
-            create_progress_bar_callback(target_name=target_name, refresh_every=10), # 每10轮刷新一次进度条
+            create_progress_bar_callback(target_name=target_name, refresh_every=LGB_PROGRESS_REFRESH_EVERY),
             lgb.record_evaluation(eval_results),
-            lgb.log_evaluation(period=50), # 每 50 棵树打印一次进度！
-            lgb.early_stopping(stopping_rounds=50) # 如果验证集误差 50 轮不下降，立刻提前停止！
+            lgb.log_evaluation(period=LGB_LOG_EVAL_PERIOD),
+            lgb.early_stopping(stopping_rounds=LGB_EARLY_STOPPING_ROUNDS)
         ]
     )
 
     # 若触发提前停止，补打一行最终状态，避免误解为“还没跑完”。
-    if model.best_iteration < 1000:
+    if model.best_iteration < LGB_NUM_BOOST_ROUND:
         print(f"[{target_name}] 提前停止于第 {model.best_iteration} 轮（已启用 early_stopping）。")
 
     # 最终评估
@@ -261,7 +281,8 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         eval_results,
         target_name=target_name,
         scale_tag=scale_tag,
-        run_timestamp=run_timestamp
+        run_timestamp=run_timestamp,
+        run_output_dir=run_output_dir
     )
     
     return model
@@ -311,7 +332,9 @@ if __name__ == "__main__":
     file_name = TRAIN_FILE
     os.makedirs(TRAINING_RESULTS_DIR, exist_ok=True)
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
+    run_output_dir = get_run_output_dir(run_timestamp)
     print(f"本次训练时间戳: {run_timestamp}")
+    print(f"本次结果目录: {run_output_dir}")
     
     # 规模设置
     training_scales = TRAINING_SCALE 
@@ -330,7 +353,8 @@ if __name__ == "__main__":
             feature_cols,
             target_name='rent',
             scale_tag=scale_tag,
-            run_timestamp=run_timestamp
+            run_timestamp=run_timestamp,
+            run_output_dir=run_output_dir
         )
         
         # 3. 训练“流入率”模型 (return)
@@ -339,12 +363,13 @@ if __name__ == "__main__":
             feature_cols,
             target_name='return',
             scale_tag=scale_tag,
-            run_timestamp=run_timestamp
+            run_timestamp=run_timestamp,
+            run_output_dir=run_output_dir
         )
 
         # 4. 对测试集进行双目标预测，并导出结果文件
         output_file = os.path.join(
-            TRAINING_RESULTS_DIR,
+            run_output_dir,
             PREDICTION_OUTPUT_TEMPLATE.format(
                 scale=scale if scale is not None else 'all',
                 ts=run_timestamp
