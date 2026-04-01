@@ -36,7 +36,7 @@ LGB_PARAMS = {
     'verbose': -1                
 }
 
-LGB_NUM_BOOST_ROUND = 2000       # 最大迭代轮数上限
+LGB_NUM_BOOST_ROUND = 3000       # 最大迭代轮数上限
 LGB_EARLY_STOPPING_ROUNDS = 50   # 验证集连续多少轮无提升则早停
 LGB_LOG_EVAL_PERIOD = 50         # 每多少轮打印一次评估日志
 LGB_PROGRESS_REFRESH_EVERY = 10  # 终端进度条刷新频率

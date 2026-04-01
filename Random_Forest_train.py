@@ -23,7 +23,7 @@ PROGRESS_PLOT_TEMPLATE = 'training_progress_RF_{target}_{scale}_{ts}.png'
 # 统一管理训练超参数，便于集中调参
 TRAIN_VALID_TEST_SIZE = 0.2               # 验证集占比
 TRAIN_VALID_RANDOM_STATE = 42             # 固定随机种子，保证可复现
-RF_STAGE_ESTIMATORS = list(range(50, 2001, 50)) # 分阶段树数量，用于观察收敛曲线
+RF_STAGE_ESTIMATORS = list(range(50, 3001, 50)) # 分阶段树数量，用于观察收敛曲线
 
 RF_WARM_START_PARAMS = {
     'n_estimators': RF_STAGE_ESTIMATORS[0], # 初始树数，后续逐阶段增加
