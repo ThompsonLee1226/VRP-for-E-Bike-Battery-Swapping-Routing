@@ -12,8 +12,12 @@ warnings.filterwarnings('ignore') # 忽略一些常规警告
 
 # 统一管理输入输出文件名，方便后续修改与复用
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
-TEST_FILE = 'swapping_data_test.csv'
-TRAINING_RESULTS_DIR = 'Training_Results'
+TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
+TRAINING_SCALE = [20000, 
+                  None
+                  ]
+
+TRAINING_RESULTS_DIR = 'Training_Results_LightGBM'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_DIR = TRAINING_RESULTS_DIR
 PROGRESS_PLOT_TEMPLATE = 'training_progress_{target}_{scale}_{ts}.png'
@@ -265,6 +269,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
 
 def predict_on_test_data(models, feature_cols, test_file, output_file):
+    
     """
     使用训练好的 rent/return 模型对测试集做预测，并导出结果。
     :param models: {'rent': rent_model, 'return': return_model}
@@ -309,10 +314,8 @@ if __name__ == "__main__":
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
     print(f"本次训练时间戳: {run_timestamp}")
     
-    # 我们设定两个规模：2万行(验证代码逻辑)，和全量(真实压榨模型性能)
-    training_scales = [#20000, 
-                       None
-                       ] 
+    # 规模设置
+    training_scales = TRAINING_SCALE 
     
     for scale in training_scales:
         if scale is None:
