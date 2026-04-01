@@ -310,8 +310,8 @@ if __name__ == "__main__":
     print(f"本次训练时间戳: {run_timestamp}")
     
     # 我们设定两个规模：2万行(验证代码逻辑)，和全量(真实压榨模型性能)
-    training_scales = [20000, 
-                       #None
+    training_scales = [#20000, 
+                       None
                        ] 
     
     for scale in training_scales:
