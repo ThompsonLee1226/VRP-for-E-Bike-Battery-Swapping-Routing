@@ -34,7 +34,7 @@ CB_PARAMS = {
     'depth': 10,                 # 对称树深度，略加深以提升拟合能力
     'l2_leaf_reg': 4.0,          # L2正则化，控制过拟合
     'random_seed': TRAIN_VALID_RANDOM_STATE,
-    'task_type': 'GPU',          
+    'task_type': 'CPU',          
     'thread_count': -1,
     'od_type': 'Iter',           # 早停类型
     'od_wait': 200               # 早停轮次
@@ -139,6 +139,12 @@ def get_run_output_dir(run_timestamp):
     os.makedirs(run_output_dir, exist_ok=True)
     return run_output_dir
 
+
+def get_catboost_train_dir(run_output_dir):
+    train_dir = os.path.join(run_output_dir, 'catboost_info')
+    os.makedirs(train_dir, exist_ok=True)
+    return train_dir
+
 def plot_training_progress(evals_result, target_name, scale_tag, run_timestamp, run_output_dir):
     # 解析 CatBoost 的 evals_result 字典
     if not evals_result:
@@ -189,6 +195,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
     # 提取类别特征在特征列表中的索引，CatBoost 强制要求
     cat_features_indices = [features.index(f) for f in CB_CATEGORICAL_FEATURES if f in features]
+    catboost_train_dir = get_catboost_train_dir(run_output_dir)
 
     print(f"[{time.strftime('%H:%M:%S')}] 正在建树，请关注误差下降情况：")
 
@@ -196,6 +203,8 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     model = cb.CatBoostRegressor(
         iterations=CB_ITERATIONS,
         cat_features=cat_features_indices,
+        train_dir=catboost_train_dir,
+        allow_writing_files=True,
         **CB_PARAMS
     )
 
