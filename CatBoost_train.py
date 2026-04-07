@@ -13,7 +13,9 @@ warnings.filterwarnings('ignore')
 # 统一管理输入输出文件名
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
-TRAINING_SCALE = [20000, None]
+TRAINING_SCALE = [20000, 
+                  #None
+                  ]
 TRAINING_RESULTS_DIR = 'Training_Results_CatBoost'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_CB_{target}_{scale}_{ts}.png'
@@ -28,21 +30,21 @@ CB_CATEGORICAL_FEATURES = ['h3'] # CatBoost 原生强力支持类别特征
 CB_PARAMS = {
     'loss_function': 'RMSE',
     'eval_metric': 'RMSE',
-    'learning_rate': 0.03,
+    'learning_rate': 0.02,
     'depth': 10,                 # 对称树深度，略加深以提升拟合能力
-    'l2_leaf_reg': 5.0,          # L2正则化，控制过拟合
+    'l2_leaf_reg': 4.0,          # L2正则化，控制过拟合
     'random_seed': TRAIN_VALID_RANDOM_STATE,
-    'task_type': 'CPU',          # 若有GPU可改为 'GPU' 加速全量训练
+    'task_type': 'GPU',          
     'thread_count': -1,
     'od_type': 'Iter',           # 早停类型
-    'od_wait': 80                # 连续80轮无提升则早停
+    'od_wait': 200               # 早停轮次
 }
 
-CB_ITERATIONS = 5000             # 最大迭代轮数
+CB_ITERATIONS = 10000            # 最大迭代轮数
 CB_LOG_EVAL_PERIOD = 50          # 终端打印周期
 
 # ==========================================
-# 1. 工业级数据预处理管道
+# 1. 数据预处理管道
 # ==========================================
 def load_and_preprocess(file_path, scale=None):
     print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载数据...")
@@ -50,7 +52,7 @@ def load_and_preprocess(file_path, scale=None):
         print(f"当前模式：小规模试跑，读取前 {scale} 行。")
         df = pd.read_csv(file_path, nrows=scale)
     else:
-        print(f"当前模式：全量数据训练！(CatBoost内存管理极佳，但仍需等待)")
+        print(f"当前模式：全量数据训练！")
         df = pd.read_csv(file_path)
     
     print(f"数据加载完成，形状: {df.shape}")
