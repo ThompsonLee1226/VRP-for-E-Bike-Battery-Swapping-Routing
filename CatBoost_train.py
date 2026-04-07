@@ -17,6 +17,7 @@ TRAINING_SCALE = [20000, None]
 TRAINING_RESULTS_DIR = 'Training_Results_CatBoost'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_CB_{target}_{scale}_{ts}.png'
+USE_LOG_TARGET = True
 
 # 统一管理训练超参数
 TRAIN_VALID_TEST_SIZE = 0.2
@@ -27,17 +28,17 @@ CB_CATEGORICAL_FEATURES = ['h3'] # CatBoost 原生强力支持类别特征
 CB_PARAMS = {
     'loss_function': 'RMSE',
     'eval_metric': 'RMSE',
-    'learning_rate': 0.05,
-    'depth': 8,                  # 对称树深度，6-10较为合适
-    'l2_leaf_reg': 3.0,          # L2正则化，控制过拟合
+    'learning_rate': 0.03,
+    'depth': 10,                 # 对称树深度，略加深以提升拟合能力
+    'l2_leaf_reg': 5.0,          # L2正则化，控制过拟合
     'random_seed': TRAIN_VALID_RANDOM_STATE,
     'task_type': 'CPU',          # 若有GPU可改为 'GPU' 加速全量训练
     'thread_count': -1,
     'od_type': 'Iter',           # 早停类型
-    'od_wait': 50                # 连续50轮无提升则早停
+    'od_wait': 80                # 连续80轮无提升则早停
 }
 
-CB_ITERATIONS = 3000             # 最大迭代轮数
+CB_ITERATIONS = 5000             # 最大迭代轮数
 CB_LOG_EVAL_PERIOD = 50          # 终端打印周期
 
 # ==========================================
@@ -62,16 +63,61 @@ def load_and_preprocess(file_path, scale=None):
         df['h3'] = df['h3'].astype(str)
         
     df = fill_missing_values(df)
+    df = add_feature_engineering(df)
 
     features = [
         'h3', 'temperature', 'wind_level', 'rain_level', 
         'month', 'day_of_week', 'is_weekend', 'hour',
         'rent_mean_7d', 'return_mean_7d', 'lag_nb_rent', 'lag_nb_return',
         'normal_power_bike_count', 'soon_low_power_bike_count', 'low_power_bike_count',
-        'latitude', 'longitude'
+        'latitude', 'longitude',
+        'hour_sin', 'hour_cos', 'day_of_week_sin', 'day_of_week_cos',
+        'month_sin', 'month_cos', 'temp_x_rain', 'available_power_bike_gap', 'is_rush_hour'
     ]
     
     return df, features
+
+
+def add_feature_engineering(df):
+    df = df.copy()
+
+    if 'hour' in df.columns:
+        hour_angle = 2 * np.pi * (df['hour'] % 24) / 24.0
+        df['hour_sin'] = np.sin(hour_angle)
+        df['hour_cos'] = np.cos(hour_angle)
+        df['is_rush_hour'] = df['hour'].isin([7, 8, 9, 17, 18, 19]).astype(int)
+    else:
+        df['hour_sin'] = 0.0
+        df['hour_cos'] = 0.0
+        df['is_rush_hour'] = 0
+
+    if 'day_of_week' in df.columns:
+        dow_angle = 2 * np.pi * ((df['day_of_week'] - 1) % 7) / 7.0
+        df['day_of_week_sin'] = np.sin(dow_angle)
+        df['day_of_week_cos'] = np.cos(dow_angle)
+    else:
+        df['day_of_week_sin'] = 0.0
+        df['day_of_week_cos'] = 0.0
+
+    if 'month' in df.columns:
+        month_angle = 2 * np.pi * ((df['month'] - 1) % 12) / 12.0
+        df['month_sin'] = np.sin(month_angle)
+        df['month_cos'] = np.cos(month_angle)
+    else:
+        df['month_sin'] = 0.0
+        df['month_cos'] = 0.0
+
+    if 'temperature' in df.columns and 'rain_level' in df.columns:
+        df['temp_x_rain'] = df['temperature'] * (1 + df['rain_level'])
+    else:
+        df['temp_x_rain'] = 0.0
+
+    if 'normal_power_bike_count' in df.columns and 'low_power_bike_count' in df.columns:
+        df['available_power_bike_gap'] = df['normal_power_bike_count'] - df['low_power_bike_count']
+    else:
+        df['available_power_bike_gap'] = 0.0
+
+    return df
 
 def fill_missing_values(df):
     for col in df.columns:
@@ -110,7 +156,8 @@ def plot_training_progress(evals_result, target_name, scale_tag, run_timestamp, 
     plt.plot(rounds, valid_rmse, label='Valid RMSE', linewidth=1.8)
     plt.xlabel('Boosting Round')
     plt.ylabel('RMSE')
-    plt.title(f'CatBoost Training Progress - {target_name} ({scale_tag})')
+    title_suffix = 'log1p target' if USE_LOG_TARGET else 'raw target'
+    plt.title(f'CatBoost Training Progress - {target_name} ({scale_tag}, {title_suffix})')
     plt.legend()
     plt.grid(alpha=0.25)
     plt.tight_layout()
@@ -130,7 +177,9 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     validate_required_columns(df, features + [target_name], '训练集')
 
     X = df[features]
-    y = df[target_name]
+    y = df[target_name].astype(float)
+    if USE_LOG_TARGET:
+        y = np.log1p(y)
 
     X_train, X_valid, y_train, y_valid = train_test_split(
         X, y, test_size=TRAIN_VALID_TEST_SIZE, random_state=TRAIN_VALID_RANDOM_STATE
@@ -161,7 +210,13 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     
     # 最终评估
     y_pred = model.predict(X_valid)
-    final_rmse = np.sqrt(mean_squared_error(y_valid, y_pred))
+    if USE_LOG_TARGET:
+        y_pred = np.expm1(y_pred)
+        y_valid_eval = np.expm1(y_valid)
+    else:
+        y_valid_eval = y_valid
+    y_pred = np.clip(y_pred, 0, None)
+    final_rmse = np.sqrt(mean_squared_error(y_valid_eval, y_pred))
     print(f"🎯 最终验证集 RMSE: {final_rmse:.4f}")
 
     # 特征重要性
@@ -194,13 +249,19 @@ def predict_on_test_data(models, feature_cols, test_file, output_file):
     if 'h3' in test_df.columns:
         test_df['h3'] = test_df['h3'].astype(str)
     test_df = fill_missing_values(test_df)
+    test_df = add_feature_engineering(test_df)
 
     validate_required_columns(test_df, feature_cols, '测试集')
     X_test = test_df[feature_cols]
 
     result_df = pd.DataFrame(index=test_df.index)
-    result_df['rent_pred'] = models['rent'].predict(X_test)
-    result_df['return_pred'] = models['return'].predict(X_test)
+    rent_pred = models['rent'].predict(X_test)
+    return_pred = models['return'].predict(X_test)
+    if USE_LOG_TARGET:
+        rent_pred = np.expm1(rent_pred)
+        return_pred = np.expm1(return_pred)
+    result_df['rent_pred'] = np.clip(rent_pred, 0, None)
+    result_df['return_pred'] = np.clip(return_pred, 0, None)
 
     for id_col in ['id', 'station_id', 'h3']:
         if id_col in test_df.columns:
