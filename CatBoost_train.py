@@ -13,8 +13,8 @@ warnings.filterwarnings('ignore')
 # 统一管理输入输出文件名
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
-TRAINING_SCALE = [20000, 
-                  #None
+TRAINING_SCALE = [#20000, 
+                  None
                   ]
 TRAINING_RESULTS_DIR = 'Training_Results_CatBoost'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_scale_{scale}_{ts}.csv'
@@ -26,18 +26,19 @@ TRAIN_VALID_TEST_SIZE = 0.2
 TRAIN_VALID_RANDOM_STATE = 42
 CB_CATEGORICAL_FEATURES = ['h3'] # CatBoost 原生强力支持类别特征
 
-# CatBoost 核心参数字典
+
 CB_PARAMS = {
     'loss_function': 'RMSE',
     'eval_metric': 'RMSE',
-    'learning_rate': 0.02,
-    'depth': 10,                 # 对称树深度，略加深以提升拟合能力
-    'l2_leaf_reg': 4.0,          # L2正则化，控制过拟合
+    'learning_rate': 0.03,
+    'depth': 9,                  # 对称树深度
+    'l2_leaf_reg': 4.0,          # L2正则化
     'random_seed': TRAIN_VALID_RANDOM_STATE,
-    'task_type': 'CPU',          
+    'task_type': 'GPU',
+    'devices': '0:1',         
     'thread_count': -1,
     'od_type': 'Iter',           # 早停类型
-    'od_wait': 200               # 早停轮次
+    'od_wait': 50                # 早停轮次
 }
 
 CB_ITERATIONS = 10000            # 最大迭代轮数
