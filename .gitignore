@@ -1,3 +1,5 @@
 # Ignore large raw dataset
 battery_swapping_routing_data.csv
 battery_swapping_routing_test_dataset.csv
+battery_swapping_routing_data_train_time70.csv
+battery_swapping_routing_data_valid_time30.csv

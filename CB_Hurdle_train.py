@@ -11,7 +11,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # 统一管理输入输出文件名
-TRAIN_FILE = 'battery_swapping_routing_data.csv'
+TRAIN_FILE = 'battery_swapping_routing_data_train_time70.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [100000, 
                   #None
