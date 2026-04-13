@@ -11,7 +11,7 @@ import os
 # Input / output
 TRAIN_FILE = 'battery_swapping_routing_data_train_time70.csv'  # Training CSV path
 TEST_FILE = 'battery_swapping_routing_data_valid_time30.csv'  # Validation/Test CSV path
-TRAINING_SCALE = [20000]  # Row scale list; None means full dataset
+TRAINING_SCALE = [None]  # Row scale list; None means full dataset
 TRAINING_RESULTS_DIR = 'Training_Results_CatBoost'  # Root results directory
 TRAINING_SUMMARY_CSV = os.path.join(TRAINING_RESULTS_DIR, 'training_summary.csv')  # Long-term summary CSV path
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_scale_{scale}_{ts}.csv'  # Prediction filename template
@@ -38,7 +38,7 @@ CB_PARAMS = {
     'depth': 9,  # Tree depth
     'l2_leaf_reg': 4.0,  # L2 regularization
     'random_seed': TRAIN_VALID_RANDOM_STATE,  # Model random seed
-    'task_type': 'GPU',  # Training device type
+    'task_type': 'CPU',  # Training device type
     'devices': '0:1',  # GPU device IDs
     'thread_count': -1,  # CPU threads, -1 means auto
     'od_type': 'Iter',  # Early-stopping strategy type

@@ -57,7 +57,7 @@ CB_PARAMS = cfg_value('CB_PARAMS', {
     'depth': 9,                  # Symmetric tree depth
     'l2_leaf_reg': 4.0,          # L2 regularization
     'random_seed': TRAIN_VALID_RANDOM_STATE,
-    'task_type': 'GPU',
+    'task_type': 'CPU',
     'devices': '0:1',         
     'thread_count': -1,
     'od_type': 'Iter',           # Early-stopping type
