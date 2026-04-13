@@ -10,7 +10,7 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
-# 统一管理输入输出文件名
+# Centralized input/output configuration
 TRAIN_FILE = 'battery_swapping_routing_data_train_time70.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [100000, 
@@ -21,12 +21,12 @@ PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_Hurdle_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_CB_hurdle_{target}_{context}_{scale}_{ts}.png' 
 USE_LOG_TARGET = True
 
-# 统一管理训练超参数
+# Centralized hyperparameters
 TRAIN_VALID_TEST_SIZE = 0.2
 TRAIN_VALID_RANDOM_STATE = 42
 CB_CATEGORICAL_FEATURES = ['h3'] 
 
-# 通用参数基础
+# Shared base parameters
 CB_PARAMS = {
     'learning_rate': 0.03,
     'depth': 9,                  
@@ -38,16 +38,16 @@ CB_PARAMS = {
     'od_wait': 50                
 }
 
-# 分类器和回归器指定不同的参数
+# Classifier and regressor use different objective settings
 CB_CLASSIFIER_PARAMS = CB_PARAMS.copy()
 CB_CLASSIFIER_PARAMS.update({
-    'loss_function': 'Logloss',  # 分类用对数损失
-    'eval_metric': 'AUC'         # 评估指标用 AUC
+    'loss_function': 'Logloss',  # Logloss for classification
+    'eval_metric': 'AUC'         # AUC as classification metric
 })
 
 CB_REGRESSOR_PARAMS = CB_PARAMS.copy()
 CB_REGRESSOR_PARAMS.update({
-    'loss_function': 'RMSE',     # 回归用 RMSE
+    'loss_function': 'RMSE',     # RMSE for regression
     'eval_metric': 'RMSE'
 })
 
@@ -55,18 +55,18 @@ CB_ITERATIONS = 10000
 CB_LOG_EVAL_PERIOD = 50          
 
 # ==========================================
-# 1. 数据预处理管道
+# 1. Data preprocessing pipeline
 # ==========================================
 def load_and_preprocess(file_path, scale=None):
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载数据...")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading data...")
     if scale:
-        print(f"当前模式：小规模试跑，读取前 {scale} 行。")
+        print(f"Mode: small-scale run, reading first {scale} rows.")
         df = pd.read_csv(file_path, nrows=scale)
     else:
-        print(f"当前模式：全量数据训练！")
+        print("Mode: full-data training.")
         df = pd.read_csv(file_path)
     
-    print(f"数据加载完成，形状: {df.shape}")
+    print(f"Data loaded. Shape: {df.shape}")
 
     cols_to_drop = ['region_code', 'Unnamed: 21']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
@@ -96,7 +96,7 @@ def add_feature_engineering(df):
         hour_angle = 2 * np.pi * (df['hour'] % 24) / 24.0
         df['hour_sin'] = np.sin(hour_angle)
         df['hour_cos'] = np.cos(hour_angle)
-        # 高峰期规则：早上7-9点，下午17-19点
+        # Rush hour rule: 7-9 AM and 5-7 PM.
         df['is_rush_hour'] = df['hour'].isin([7, 8, 9, 17, 18, 19]).astype(int)
     else:
         df['hour_sin'] = 0.0
@@ -142,7 +142,7 @@ def fill_missing_values(df):
 def validate_required_columns(df, required_cols, dataset_name):
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
-        raise ValueError(f"{dataset_name} 缺少必要字段: {missing}")
+        raise ValueError(f"{dataset_name} missing required columns: {missing}")
 
 def get_run_output_dir(run_timestamp):
     run_output_dir = os.path.join(TRAINING_RESULTS_DIR, run_timestamp)
@@ -179,17 +179,17 @@ def plot_training_progress(evals_result, target_name, context_name, scale_tag, r
     plt.tight_layout()
     plt.savefig(fig_path, dpi=140)
     plt.close()
-    print(f"📈 [{context_name}] 训练进度图已保存: {fig_path}")
+    print(f"[{context_name}] Training progress figure saved: {fig_path}")
 
 # ==========================================
-# 2. 核心训练函数
+# 2. Core training function
 # ==========================================
 def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown', run_output_dir='.'):
     print(f"\n{'='*50}")
-    print(f"🟢 开始训练零膨胀架构 (Hurdle) -> 目标:【{target_name}】")
+    print(f"Start training zero-inflated Hurdle model -> target: [{target_name}]")
     print(f"{'='*50}")
 
-    validate_required_columns(df, features + [target_name], '训练集')
+    validate_required_columns(df, features + [target_name], 'train set')
 
     split_df = df.copy()
     if 'datetime' in split_df.columns:
@@ -197,9 +197,9 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         split_df = split_df.sort_values(by=['_datetime_sort_key']).drop(columns=['_datetime_sort_key'])
 
     X = split_df[features]
-    y_raw = split_df[target_name].astype(float) # 保留最原始的真实值
+    y_raw = split_df[target_name].astype(float) # Keep original ground truth
     
-    # 划分数据集
+    # Split train/valid sets
     split_idx = int(len(split_df) * (1 - TRAIN_VALID_TEST_SIZE))
     split_idx = max(1, min(split_idx, len(split_df) - 1))
     X_train, X_valid = X.iloc[:split_idx], X.iloc[split_idx:]
@@ -207,8 +207,8 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
     cat_features_indices = [features.index(f) for f in CB_CATEGORICAL_FEATURES if f in features]
 
-    # --- 阶段一：训练分类器 (预测是否 > 0) ---
-    print(f"[{time.strftime('%H:%M:%S')}] 阶段1：训练分类器 (判断是否有需求)...")
+    # --- Stage 1: Train classifier (predict whether target > 0) ---
+    print(f"[{time.strftime('%H:%M:%S')}] Stage 1: training classifier (whether demand exists)...")
     y_train_bin = (y_train_raw > 0).astype(int)
     y_valid_bin = (y_valid_raw > 0).astype(int)
 
@@ -219,15 +219,15 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     )
     classifier.fit(X_train, y_train_bin, eval_set=(X_valid, y_valid_bin), use_best_model=True, verbose=CB_LOG_EVAL_PERIOD)
 
-    # --- 阶段二：训练回归器 (只用 > 0 的数据) ---
-    print(f"\n[{time.strftime('%H:%M:%S')}] 阶段2：训练回归器 (剔除0后拟合数量)...")
+    # --- Stage 2: Train regressor (only on samples with target > 0) ---
+    print(f"\n[{time.strftime('%H:%M:%S')}] Stage 2: training regressor (fit positive demand only)...")
     mask_train_pos = y_train_raw > 0
     X_train_pos, y_train_pos = X_train[mask_train_pos], y_train_raw[mask_train_pos]
     
     mask_valid_pos = y_valid_raw > 0
     X_valid_pos, y_valid_pos = X_valid[mask_valid_pos], y_valid_raw[mask_valid_pos]
 
-    # 仅对回归任务的正样本进行 Log 转换
+    # Apply log transform only to positive samples in regression task
     if USE_LOG_TARGET:
         y_train_pos = np.log1p(y_train_pos)
         y_valid_pos = np.log1p(y_valid_pos)
@@ -239,21 +239,21 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     )
     regressor.fit(X_train_pos, y_train_pos, eval_set=(X_valid_pos, y_valid_pos), use_best_model=True, verbose=CB_LOG_EVAL_PERIOD)
 
-    # --- 阶段三：联合评估误差 ---
+    # --- Stage 3: Joint error evaluation ---
     prob_valid = classifier.predict_proba(X_valid)[:, 1]
     val_valid = regressor.predict(X_valid)
     if USE_LOG_TARGET: val_valid = np.expm1(val_valid)
     
     final_pred = np.clip(prob_valid * val_valid, 0, None)
     final_rmse = np.sqrt(mean_squared_error(y_valid_raw, final_pred))
-    print(f"\n🎉 【{target_name}】零膨胀模型训练完成！最终联合 RMSE: {final_rmse:.4f}")
+    print(f"\nTraining complete for [{target_name}] zero-inflated model! Final joint RMSE: {final_rmse:.4f}")
 
-    # 将两个模型打包返回
+    # Pack and return both models
     return {'classifier': classifier, 'regressor': regressor}
 
 
 def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载测试集进行零膨胀预测: {test_file}")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set for zero-inflated prediction: {test_file}")
     test_df = pd.read_csv(test_file)
 
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
@@ -262,12 +262,12 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
     if 'h3' in test_df.columns: test_df['h3'] = test_df['h3'].astype(str)
     test_df = fill_missing_values(test_df)
     test_df = add_feature_engineering(test_df)
-    validate_required_columns(test_df, feature_cols, '测试集')
+    validate_required_columns(test_df, feature_cols, 'test set')
 
     X_test = test_df[feature_cols]
     result_df = pd.DataFrame(index=test_df.index)
 
-    # 分别对 rent 和 return 进行 概率 × 数值 的预测
+    # Predict each target by probability * value
     for target in ['rent', 'return']:
         prob = models_dict[target]['classifier'].predict_proba(X_test)[:, 1]
         val = models_dict[target]['regressor'].predict(X_test)
@@ -275,36 +275,36 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
             val = np.expm1(val)
         result_df[f'{target}_pred'] = np.clip(prob * val, 0, None)
 
-    # 拼装主键并保存
+    # Preserve one key column and save output
     for id_col in ['id', 'station_id', 'h3']:
         if id_col in test_df.columns:
             result_df.insert(0, id_col, test_df[id_col].values)
             break
 
     result_df.to_csv(output_file, index=False)
-    print(f"✅ 测试集预测完成，结果已保存到: {output_file}")
+    print(f"Test prediction complete. Saved to: {output_file}")
 
 # ==========================================
-# 3. 任务执行流
+# 3. Main pipeline
 # ==========================================
 if __name__ == "__main__":
     file_name = TRAIN_FILE
     os.makedirs(TRAINING_RESULTS_DIR, exist_ok=True)
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
     run_output_dir = get_run_output_dir(run_timestamp)
-    print(f"本次训练时间戳: {run_timestamp}")
-    print(f"本次结果目录: {run_output_dir}")
+    print(f"Run timestamp: {run_timestamp}")
+    print(f"Run output directory: {run_output_dir}")
     
     for scale in TRAINING_SCALE:
         if scale is None:
-            input("\n⚠️ 准备进入全量 CatBoost Hurdle训练！按回车键继续...")
+            input("\nAbout to start full-data CatBoost Hurdle training. Press Enter to continue...")
             
         df, feature_cols = load_and_preprocess(file_name, scale=scale)
         scale_tag = str(scale) if scale is not None else 'all'
         
         models_dict = {}
 
-        # 依次训练 rent 和 return 的零膨胀模型
+        # Train zero-inflated models for rent and return sequentially
         models_dict['rent'] = train_model(
             df, feature_cols, target_name='rent', 
             scale_tag=scale_tag, run_timestamp=run_timestamp, run_output_dir=run_output_dir
@@ -319,5 +319,5 @@ if __name__ == "__main__":
         predict_on_test_data(models_dict, feature_cols, TEST_FILE, output_file)
         
         print("\n" + "="*50)
-        print(f"✅ 规模 {scale_tag} 的 Hurdle Model 全流程结束！")
+        print(f"Hurdle model pipeline completed for scale {scale_tag}.")
         print("="*50 + "\n")

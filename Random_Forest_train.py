@@ -10,7 +10,7 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
-# 统一管理输入输出文件名
+# Centralized input/output configuration
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [20000, 
@@ -20,24 +20,24 @@ TRAINING_RESULTS_DIR = 'Training_Results_RF'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_RF_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_RF_{target}_{scale}_{ts}.png'
 
-# 统一管理训练超参数，便于集中调参
-TRAIN_VALID_TEST_SIZE = 0.2               # 验证集占比
-TRAIN_VALID_RANDOM_STATE = 42             # 固定随机种子，保证可复现
-RF_STAGE_ESTIMATORS = list(range(50, 3001, 50)) # 分阶段树数量，用于观察收敛曲线
+# Centralized hyperparameters
+TRAIN_VALID_TEST_SIZE = 0.2               # Validation split ratio
+TRAIN_VALID_RANDOM_STATE = 42             # Fixed random seed for reproducibility
+RF_STAGE_ESTIMATORS = list(range(50, 3001, 50)) # Stage-wise tree counts for convergence tracking
 
 RF_WARM_START_PARAMS = {
-    'n_estimators': RF_STAGE_ESTIMATORS[0], # 初始树数，后续逐阶段增加
-    'max_depth': 18,                        # 树深度上限，控制模型复杂度
-    'min_samples_leaf': 5,                  # 叶子最小样本数，防止过拟合
-    'max_features': 'sqrt',                 # 每次分裂考虑特征数
-    'n_jobs': -1,                           # 并行线程，-1 使用全部 CPU
-    'verbose': 0,                           # 关闭底层日志
-    'warm_start': True,                     # 允许在已有森林上继续加树
-    'random_state': 42                      # 固定随机性
+    'n_estimators': RF_STAGE_ESTIMATORS[0], # Initial tree count; increased by stages
+    'max_depth': 18,                        # Max tree depth
+    'min_samples_leaf': 5,                  # Minimum samples per leaf
+    'max_features': 'sqrt',                 # Features considered per split
+    'n_jobs': -1,                           # Parallel threads, -1 uses all CPU
+    'verbose': 0,                           # Disable low-level logs
+    'warm_start': True,                     # Continue adding trees on existing forest
+    'random_state': 42                      # Fixed randomness
 }
 
 RF_FINAL_MODEL_PARAMS = {
-    'n_estimators': RF_STAGE_ESTIMATORS[0], # 会在训练后替换成最佳树数
+    'n_estimators': RF_STAGE_ESTIMATORS[0], # Replaced by best tree count after staging
     'max_depth': 18,
     'min_samples_leaf': 5,
     'max_features': 'sqrt',
@@ -46,32 +46,32 @@ RF_FINAL_MODEL_PARAMS = {
     'random_state': 42
 }
 
-EARLY_STOPPING_PATIENCE = 3     # 连续多少个阶段无提升则停止
-EARLY_STOPPING_MIN_DELTA = 1e-4 # 认为“有提升”的最小 RMSE 降幅
+EARLY_STOPPING_PATIENCE = 3     # Stop after this many no-improvement stages
+EARLY_STOPPING_MIN_DELTA = 1e-4 # Minimum RMSE drop counted as improvement
 
 # ==========================================
-# 1. 数据预处理管道 
+# 1. Data preprocessing pipeline
 # ==========================================
 def load_and_preprocess(file_path, scale=None):
     """
-    加载并处理训练数据。
-    :param file_path: 数据文件路径
-    :param scale: 抽样规模（整数），None 表示全量
+    Load and preprocess training data.
+    :param file_path: data file path
+    :param scale: sampled row count; None means full dataset
     """
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载数据...")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading data...")
     if scale:
-        print(f"当前模式：小规模试跑，读取前 {scale} 行。")
+        print(f"Mode: small-scale run, reading first {scale} rows.")
         df = pd.read_csv(file_path, nrows=scale)
     else:
-        print("当前模式：全量数据训练！(随机森林耗时通常较高)")
+        print("Mode: full-data training (Random Forest can be time-consuming).")
         df = pd.read_csv(file_path)
     
-    print(f"数据加载完成，形状: {df.shape}")
+    print(f"Data loaded. Shape: {df.shape}")
 
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
 
-    # RF 不直接支持字符串类别，先统一编码并记录映射，确保训练/测试一致
+    # RF does not directly support string categories; encode with stable mapping.
     h3_mapping = {}
     if 'h3' in df.columns:
         df['h3'], h3_mapping = encode_h3_with_mapping(df['h3'])
@@ -91,7 +91,7 @@ def load_and_preprocess(file_path, scale=None):
 
 def encode_h3_with_mapping(series):
     """
-    将 h3 字符串编码为整数，并返回映射字典。
+    Encode h3 strings to integers and return the mapping.
     """
     clean_series = series.fillna('missing').astype(str)
     categories = pd.Index(clean_series.unique())
@@ -101,7 +101,7 @@ def encode_h3_with_mapping(series):
 
 def fill_missing_values(df):
     """
-    RF 训练统一缺失值策略：全部填充为 0。
+    Unified missing-value strategy for RF: fill all with 0.
     """
     for col in df.columns:
         df[col] = df[col].fillna(0)
@@ -110,12 +110,12 @@ def fill_missing_values(df):
 def validate_required_columns(df, required_cols, dataset_name):
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
-        raise ValueError(f"{dataset_name} 缺少必要字段: {missing}")
+        raise ValueError(f"{dataset_name} missing required columns: {missing}")
 
 
 def get_run_output_dir(run_timestamp):
     """
-    基于运行时间戳创建并返回本次训练专属输出目录。
+    Create and return run-specific output directory by timestamp.
     """
     run_output_dir = os.path.join(TRAINING_RESULTS_DIR, run_timestamp)
     os.makedirs(run_output_dir, exist_ok=True)
@@ -124,7 +124,7 @@ def get_run_output_dir(run_timestamp):
 
 def format_seconds(seconds):
     """
-    将秒数格式化为 HH:MM:SS，便于终端展示 ETA。
+    Format seconds as HH:MM:SS for ETA display.
     """
     seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
@@ -134,10 +134,10 @@ def format_seconds(seconds):
 
 def plot_training_progress(progress_df, target_name, scale_tag, run_timestamp, run_output_dir):
     """
-    将 RF 分阶段训练过程中的 RMSE 变化保存为可视化图。
+    Save stage-wise RF RMSE curves as a plot.
     """
     if progress_df.empty:
-        print(f"⚠️ 未捕获到 {target_name} 的训练过程指标，跳过可视化。")
+        print(f"Warning: no training metrics captured for {target_name}, skip plotting.")
         return
 
     fig_path = os.path.join(
@@ -157,22 +157,22 @@ def plot_training_progress(progress_df, target_name, scale_tag, run_timestamp, r
     plt.savefig(fig_path, dpi=140)
     plt.close()
 
-    print(f"📈 随机森林训练进度图已保存: {fig_path}")
+    print(f"Random Forest training progress figure saved: {fig_path}")
 
 # ==========================================
-# 2. 核心训练函数
+# 2. Core training function
 # ==========================================
 def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown', run_output_dir='.'):
     """
-    针对指定目标（rent 或 return）训练随机森林。
-    通过 warm_start 分阶段增加树数量，记录训练/验证 RMSE 作为可视化进度。
-    同时加入早停策略：验证集 RMSE 连续若干阶段无显著提升则提前结束。
+    Train Random Forest for target (rent or return).
+    Increase trees by warm_start stages and record train/valid RMSE.
+    Use early stopping when validation RMSE does not improve significantly.
     """
     print(f"\n{'='*40}")
-    print(f"开始训练目标变量 (RF): 【{target_name}】")
+    print(f"Start training target (RF): [{target_name}]")
     print(f"{'='*40}")
 
-    validate_required_columns(df, features + [target_name], '训练集')
+    validate_required_columns(df, features + [target_name], 'train set')
 
     X = df[features]
     y = df[target_name]
@@ -189,7 +189,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
     model = RandomForestRegressor(**RF_WARM_START_PARAMS)
 
-    print(f"[{time.strftime('%H:%M:%S')}] 正在分阶段培育森林，请关注 RMSE 变化：")
+    print(f"[{time.strftime('%H:%M:%S')}] Growing forest by stages; monitor RMSE changes:")
     start_time = time.time()
 
     progress_records = []
@@ -245,29 +245,29 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
     if stopped_early:
         print(
-            f"[{target_name}] 触发早停：验证集 RMSE 连续 {EARLY_STOPPING_PATIENCE} 个阶段"
-            f" 无显著下降 (min_delta={EARLY_STOPPING_MIN_DELTA})。"
+            f"[{target_name}] Early stopping triggered: validation RMSE did not significantly improve "
+            f"for {EARLY_STOPPING_PATIENCE} stages (min_delta={EARLY_STOPPING_MIN_DELTA})."
         )
 
-    # 用最佳树数重训最终模型，避免后续阶段轻微过拟合拖累最终效果
+    # Retrain final model with best tree count.
     final_model_params = RF_FINAL_MODEL_PARAMS.copy()
     final_model_params['n_estimators'] = best_n_estimators
     final_model = RandomForestRegressor(**final_model_params)
     final_model.fit(X_train, y_train)
 
-    # 最终评估
+    # Final evaluation
     y_pred = final_model.predict(X_valid)
     final_rmse = np.sqrt(mean_squared_error(y_valid, y_pred))
-    print(f"\n🎉 【{target_name}】模型训练完成！最佳树数: {best_n_estimators}")
-    print(f"🎯 最终验证集 RMSE: {final_rmse:.4f}")
+    print(f"\nTraining complete for [{target_name}]! Best tree count: {best_n_estimators}")
+    print(f"Final validation RMSE: {final_rmse:.4f}")
 
-    # 特征重要性
+    # Feature importance
     importance = pd.DataFrame({
         'feature': features,
         'importance': final_model.feature_importances_
     }).sort_values(by='importance', ascending=False)
     
-    print(f"📊 特征重要性 Top 5:")
+    print("Top 5 feature importances:")
     print(importance.head(5).to_string(index=False))
 
     progress_df = pd.DataFrame(progress_records)
@@ -284,8 +284,8 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
 def preprocess_test_data(test_df, h3_mapping):
     """
-    对测试集执行与训练一致的预处理。
-    h3 使用训练阶段映射，未知类别编码为 -1。
+    Apply the same preprocessing as training.
+    h3 uses the training mapping; unknown categories map to -1.
     """
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     test_df = test_df.drop(columns=[c for c in cols_to_drop if c in test_df.columns], errors='ignore')
@@ -299,14 +299,14 @@ def preprocess_test_data(test_df, h3_mapping):
 
 def predict_on_test_data(models, feature_cols, test_file, output_file, h3_mapping):
     """
-    使用训练好的 rent/return 模型对测试集做预测，并导出结果。
+    Predict on test set using trained rent/return models and export results.
     """
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载测试集: {test_file}")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set: {test_file}")
     test_df = pd.read_csv(test_file)
 
-    print(f"测试集加载完成，形状: {test_df.shape}")
+    print(f"Test set loaded. Shape: {test_df.shape}")
     test_df = preprocess_test_data(test_df, h3_mapping)
-    validate_required_columns(test_df, feature_cols, '测试集')
+    validate_required_columns(test_df, feature_cols, 'test set')
 
     X_test = test_df[feature_cols]
 
@@ -314,29 +314,29 @@ def predict_on_test_data(models, feature_cols, test_file, output_file, h3_mappin
     result_df['rent_pred'] = models['rent'].predict(X_test)
     result_df['return_pred'] = models['return'].predict(X_test)
 
-    # 保留 ID 方便回填
+    # Keep one ID column for downstream merge-back.
     for id_col in ['id', 'station_id', 'h3']:
         if id_col in test_df.columns:
             result_df.insert(0, id_col, test_df[id_col].values)
             break
 
     result_df.to_csv(output_file, index=False)
-    print(f"✅ 测试集预测完成，结果已保存到: {output_file}")
+    print(f"Test prediction complete. Saved to: {output_file}")
 
 # ==========================================
-# 3. 任务执行流 
+# 3. Main pipeline
 # ==========================================
 if __name__ == "__main__":
     os.makedirs(TRAINING_RESULTS_DIR, exist_ok=True)
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
     run_output_dir = get_run_output_dir(run_timestamp)
-    print(f"本次训练时间戳: {run_timestamp}")
-    print(f"本次结果目录: {run_output_dir}")
+    print(f"Run timestamp: {run_timestamp}")
+    print(f"Run output directory: {run_output_dir}")
     
     training_scales = TRAINING_SCALE
     for scale in training_scales:
         if scale is None:
-            input("\n⚠️ 准备进入随机森林全量训练阶段（已启用早停策略）。按回车开始...")
+            input("\nAbout to start full-data Random Forest training (early stopping enabled). Press Enter to continue...")
             
         df, feature_cols, h3_mapping = load_and_preprocess(TRAIN_FILE, scale=scale)
         scale_tag = str(scale) if scale is not None else 'all'
@@ -357,5 +357,5 @@ if __name__ == "__main__":
         )
         
         print("\n" + "="*50)
-        print(f"✅ 规模 {scale_tag} 的随机森林双目标训练与测试集预测全部结束！")
+        print(f"Random Forest dual-target training and test prediction completed for scale {scale_tag}.")
         print("="*50 + "\n")

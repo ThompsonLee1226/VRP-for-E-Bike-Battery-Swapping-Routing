@@ -15,7 +15,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 try:
-    import training_config as cfg
+    import training_config as cfg   # Import training configuration
 except ImportError:
     cfg = None
 
@@ -29,7 +29,7 @@ def cfg_value(name, default):
         return default
     return getattr(cfg, name, default)
 
-# 统一管理输入输出文件名
+# Centralized input/output configuration
 TRAIN_FILE = cfg_value('TRAIN_FILE', 'battery_swapping_routing_data_train_time70.csv')
 TEST_FILE = cfg_value('TEST_FILE', 'battery_swapping_routing_test_dataset.csv')
 TRAINING_SCALE = cfg_value('TRAINING_SCALE', [20000])
@@ -37,35 +37,35 @@ TRAINING_RESULTS_DIR = cfg_value('TRAINING_RESULTS_DIR', 'Training_Results_CatBo
 TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', os.path.join(TRAINING_RESULTS_DIR, 'training_summary.csv'))
 PREDICTION_OUTPUT_TEMPLATE = cfg_value('PREDICTION_OUTPUT_TEMPLATE', 'prediction_CB_scale_{scale}_{ts}.csv')
 PROGRESS_PLOT_TEMPLATE = cfg_value('PROGRESS_PLOT_TEMPLATE', 'training_progress_CB_{target}_{scale}_{ts}.png')
-USE_LOG_TARGET = cfg_value('USE_LOG_TARGET', True)           # 是否对目标变量进行 log1p 变换，影响训练目标空间和评测空间
+USE_LOG_TARGET = cfg_value('USE_LOG_TARGET', True)           # Apply log1p on target; affects training and evaluation space
 REPORT_METRIC_SPACE = cfg_value('REPORT_METRIC_SPACE', 'auto')
 
-# 统一管理训练超参数
+# Centralized training hyperparameters
 TRAIN_VALID_TEST_SIZE = cfg_value('TRAIN_VALID_TEST_SIZE', 0.2)
 TRAIN_VALID_RANDOM_STATE = cfg_value('TRAIN_VALID_RANDOM_STATE', 42)
 SPLIT_MODE = cfg_value('SPLIT_MODE', 'random')
 TIME_SPLIT_COLUMN = cfg_value('TIME_SPLIT_COLUMN', 'datetime')
 TIME_SPLIT_RATIO = cfg_value('TIME_SPLIT_RATIO', 0.7)
 TIME_SPLIT_ASCENDING = cfg_value('TIME_SPLIT_ASCENDING', True)
-CB_CATEGORICAL_FEATURES = cfg_value('CB_CATEGORICAL_FEATURES', ['h3']) # CatBoost 原生强力支持类别特征
+CB_CATEGORICAL_FEATURES = cfg_value('CB_CATEGORICAL_FEATURES', ['h3']) # CatBoost native categorical features
 
 
 CB_PARAMS = cfg_value('CB_PARAMS', {
     'loss_function': 'RMSE',
     'eval_metric': 'RMSE',
     'learning_rate': 0.03,
-    'depth': 9,                  # 对称树深度
-    'l2_leaf_reg': 4.0,          # L2正则化
+    'depth': 9,                  # Symmetric tree depth
+    'l2_leaf_reg': 4.0,          # L2 regularization
     'random_seed': TRAIN_VALID_RANDOM_STATE,
     'task_type': 'GPU',
     'devices': '0:1',         
     'thread_count': -1,
-    'od_type': 'Iter',           # 早停类型
-    'od_wait': 10                # 早停轮次
+    'od_type': 'Iter',           # Early-stopping type
+    'od_wait': 10                # Early-stopping patience rounds
 })
 
-CB_ITERATIONS = cfg_value('CB_ITERATIONS', 1000)             # 最大迭代轮数
-CB_LOG_EVAL_PERIOD = cfg_value('CB_LOG_EVAL_PERIOD', 5)           # 终端打印周期
+CB_ITERATIONS = cfg_value('CB_ITERATIONS', 1000)             # Maximum iterations
+CB_LOG_EVAL_PERIOD = cfg_value('CB_LOG_EVAL_PERIOD', 5)      # Console logging period
 
 
 def resolve_report_metric_space():
@@ -73,9 +73,9 @@ def resolve_report_metric_space():
     if REPORT_METRIC_SPACE == 'auto':
         return 'log' if USE_LOG_TARGET else 'raw'
     if REPORT_METRIC_SPACE not in {'log', 'raw'}:
-        raise ValueError("REPORT_METRIC_SPACE 仅支持: 'auto' | 'log' | 'raw'")
+        raise ValueError("REPORT_METRIC_SPACE only supports: 'auto' | 'log' | 'raw'")
     if REPORT_METRIC_SPACE == 'log' and not USE_LOG_TARGET:
-        raise ValueError("USE_LOG_TARGET=False 时不能使用 log 评测空间")
+        raise ValueError("Cannot use log report space when USE_LOG_TARGET=False")
     return REPORT_METRIC_SPACE
 
 
@@ -88,17 +88,17 @@ def split_train_valid(df, features, y, y_raw):
     """Split data into train/valid sets using random or time-based strategy."""
     if SPLIT_MODE == 'time':
         if TIME_SPLIT_COLUMN not in df.columns:
-            raise ValueError(f"启用时间切分时，训练集缺少字段: {TIME_SPLIT_COLUMN}")
+            raise ValueError(f"Time split enabled but training data is missing column: {TIME_SPLIT_COLUMN}")
 
         dt = pd.to_datetime(df[TIME_SPLIT_COLUMN], errors='coerce')
         if dt.isna().all():
-            raise ValueError(f"字段 {TIME_SPLIT_COLUMN} 无法解析为时间，无法按时间切分")
+            raise ValueError(f"Column {TIME_SPLIT_COLUMN} cannot be parsed as datetime for time split")
 
         fallback = pd.Timestamp.max if TIME_SPLIT_ASCENDING else pd.Timestamp.min
         ordered_idx = dt.fillna(fallback).sort_values(ascending=TIME_SPLIT_ASCENDING).index
         split_pos = int(len(ordered_idx) * TIME_SPLIT_RATIO)
         if split_pos <= 0 or split_pos >= len(ordered_idx):
-            raise ValueError("时间切分失败: 请检查 TIME_SPLIT_RATIO 是否合理")
+            raise ValueError("Time split failed: please check TIME_SPLIT_RATIO")
 
         train_idx = ordered_idx[:split_pos]
         valid_idx = ordered_idx[split_pos:]
@@ -112,7 +112,7 @@ def split_train_valid(df, features, y, y_raw):
         train_time_range = f"{train_time.min()} -> {train_time.max()}" if not train_time.empty else 'N/A'
         valid_time_range = f"{valid_time.min()} -> {valid_time.max()}" if not valid_time.empty else 'N/A'
         print(
-            "🕒 时间切分完成: "
+            "Time split done: "
             f"train[{train_time_range}], valid[{valid_time_range}], "
             f"train={len(train_idx)}, valid={len(valid_idx)}"
         )
@@ -127,27 +127,27 @@ def split_train_valid(df, features, y, y_raw):
     return X_train, X_valid, y_train, y_valid, y_train_raw, y_valid_raw, 'random_split', 'random_split'
 
 # ==========================================
-# 1. 数据预处理管道
+# 1. Data preprocessing pipeline
 # ==========================================
 def load_and_preprocess(file_path, scale=None):
     """Load CSV, clean basic columns, fill missing values, and build feature list."""
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载数据...")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading data...")
     if scale:
-        print(f"当前模式：小规模试跑，读取前 {scale} 行。")
+        print(f"Mode: small-scale run, loading first {scale} rows.")
         df = pd.read_csv(file_path, nrows=scale)
     else:
-        print(f"当前模式：全量数据训练！")
+        print("Mode: full-data training.")
         df = pd.read_csv(file_path)
     
-    print(f"数据加载完成，形状: {df.shape}")
+    print(f"Data loaded. Shape: {df.shape}")
 
-    # 保留 datetime 供时间切分使用；不会进入特征列表。
+    # Keep datetime for time split; it is not part of feature list.
     cols_to_drop = ['region_code', 'Unnamed: 21']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
 
-    # CatBoost 要求类别特征为 string 或 int，避免 null
+    # CatBoost requires categorical features to be string/int and non-null.
     if 'h3' in df.columns:
-        df['h3'] = df['h3'].astype(str) # h3有可能是无效信息
+        df['h3'] = df['h3'].astype(str) # h3 may include irregular values
         
     df = fill_missing_values(df)
     df = add_feature_engineering(df)
@@ -158,7 +158,7 @@ def load_and_preprocess(file_path, scale=None):
         'rent_mean_7d', 'return_mean_7d', 'lag_nb_rent', 'lag_nb_return',
         'normal_power_bike_count', 'soon_low_power_bike_count', 'low_power_bike_count',
         'latitude', 'longitude',
-        # 树模型直接学习时间离散变量，无需周期分解特征
+        # Tree models can learn discrete time variables directly.
         'temp_x_rain', 'available_power_bike_gap', 'is_rush_hour'
     ]
     
@@ -199,7 +199,7 @@ def validate_required_columns(df, required_cols, dataset_name):
     """Validate required columns exist before training/prediction."""
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
-        raise ValueError(f"{dataset_name} 缺少必要字段: {missing}")
+        raise ValueError(f"{dataset_name} missing required columns: {missing}")
 
 def get_run_output_dir(run_timestamp):
     """Create and return per-run output directory by timestamp."""
@@ -237,18 +237,18 @@ def plot_training_progress(train_rmse, valid_rmse, metric_name, metric_space, ta
     plt.savefig(fig_path, dpi=140)
     plt.close()
 
-    print(f"📈 训练进度图已保存: {fig_path}")
+    print(f"Training progress figure saved: {fig_path}")
 
 # ==========================================
-# 2. 核心训练函数
+# 2. Core training function
 # ==========================================
 def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown', run_output_dir='.'):
     """Train a CatBoost model for one target and return model + summary dict."""
     print(f"\n{'='*40}")
-    print(f"开始训练目标变量 (CatBoost): 【{target_name}】")
+    print(f"Start training target (CatBoost): [{target_name}]")
     print(f"{'='*40}")
 
-    validate_required_columns(df, features + [target_name], '训练集')
+    validate_required_columns(df, features + [target_name], 'train set')
 
     X = df[features]
     y_raw = df[target_name].astype(float)
@@ -267,13 +267,13 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         y_raw=y_raw,
     )
 
-    # 提取类别特征在特征列表中的索引，CatBoost 强制要求
+    # Extract categorical feature indices in the feature list.
     cat_features_indices = [features.index(f) for f in CB_CATEGORICAL_FEATURES if f in features]
     catboost_train_dir = get_catboost_train_dir(run_output_dir)
 
-    print(f"[{time.strftime('%H:%M:%S')}] 正在建树，请关注误差下降情况：")
+    print(f"[{time.strftime('%H:%M:%S')}] Building trees; monitor error reduction below:")
 
-    # 初始化 CatBoost 回归器
+    # Initialize CatBoost regressor
     model = cb.CatBoostRegressor(
         iterations=CB_ITERATIONS,
         cat_features=cat_features_indices,
@@ -282,7 +282,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         **CB_PARAMS
     )
 
-    # 训练模型
+    # Train model
     model.fit(
         X_train, y_train,
         eval_set=(X_valid, y_valid),
@@ -291,10 +291,10 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     )
 
     best_iter = model.get_best_iteration()
-    print(f"\n🎉 【{target_name}】CatBoost 模型训练完成！最优迭代次数: {best_iter}")
-    print(f"🧭 统一评测空间: {report_space}")
-    print(f"🧭 训练目标函数(loss_function): {CB_PARAMS['loss_function']}，目标空间: {target_space_desc}")
-    print(f"🧭 训练监控指标(eval_metric): {CB_PARAMS['eval_metric']}，目标空间: {target_space_desc}")
+    print(f"\nTraining complete for [{target_name}]! Best iteration: {best_iter}")
+    print(f"Report metric space: {report_space}")
+    print(f"Training objective (loss_function): {CB_PARAMS['loss_function']}, target space: {target_space_desc}")
+    print(f"Training monitor metric (eval_metric): {CB_PARAMS['eval_metric']}, target space: {target_space_desc}")
 
     best_score = model.get_best_score()
     valid_rmse_objective = best_score.get('validation', {}).get('RMSE', None)
@@ -305,7 +305,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         y_pred_for_report = model.predict(X_valid)
         final_rmse = rmse_value(y_valid, y_pred_for_report)
         if valid_rmse_objective is not None:
-            print(f"📏 验证集最优RMSE(log空间): {valid_rmse_objective:.4f}")
+            print(f"Best validation RMSE (log space): {valid_rmse_objective:.4f}")
     else:
         train_rmse_curve = []
         valid_rmse_curve = []
@@ -332,22 +332,22 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         if valid_rmse_curve:
             best_iter_for_curve = best_iter if best_iter is not None and best_iter >= 0 else len(valid_rmse_curve) - 1
             best_iter_for_curve = min(best_iter_for_curve, len(valid_rmse_curve) - 1)
-            print(f"📏 验证集最优RMSE(raw空间): {valid_rmse_curve[best_iter_for_curve]:.4f}")
+            print(f"Best validation RMSE (raw space): {valid_rmse_curve[best_iter_for_curve]:.4f}")
         if valid_rmse_objective is not None:
-            print(f"📎 参考: CatBoost原生日志RMSE(目标空间): {valid_rmse_objective:.4f}")
+            print(f"Reference: native CatBoost log RMSE (objective space): {valid_rmse_objective:.4f}")
     
-    print(f"🎯 最终验证集RMSE({report_space}空间): {final_rmse:.4f}")
+    print(f"Final validation RMSE ({report_space} space): {final_rmse:.4f}")
 
     training_seconds = time.time() - train_start_time
 
-    # 特征重要性
+    # Feature importance
     importance = pd.DataFrame({
         'feature': features,
         'importance': model.get_feature_importance()
     }).sort_values(by='importance', ascending=False)
     top_features = format_top_features(importance)
     
-    print(f"📊 特征重要性 Top 5:")
+    print("Top 5 feature importances:")
     print(importance.head(5).to_string(index=False))
 
     plot_training_progress(
@@ -380,9 +380,9 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
 def predict_on_test_data(models, feature_cols, test_file, output_file):
     """Run inference on test set and save rent/return predictions to CSV."""
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载测试集: {test_file}")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set: {test_file}")
     test_df = pd.read_csv(test_file)
-    print(f"测试集加载完成，形状: {test_df.shape}")
+    print(f"Test set loaded. Shape: {test_df.shape}")
 
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     test_df = test_df.drop(columns=[c for c in cols_to_drop if c in test_df.columns], errors='ignore')
@@ -392,7 +392,7 @@ def predict_on_test_data(models, feature_cols, test_file, output_file):
     test_df = fill_missing_values(test_df)
     test_df = add_feature_engineering(test_df)
 
-    validate_required_columns(test_df, feature_cols, '测试集')
+    validate_required_columns(test_df, feature_cols, 'test set')
     X_test = test_df[feature_cols]
 
     result_df = pd.DataFrame(index=test_df.index)
@@ -410,22 +410,22 @@ def predict_on_test_data(models, feature_cols, test_file, output_file):
             break
 
     result_df.to_csv(output_file, index=False)
-    print(f"✅ 测试集预测完成，结果已保存到: {output_file}")
+    print(f"Test prediction complete. Saved to: {output_file}")
 
 # ==========================================
-# 3. 任务执行流
+# 3. Main pipeline
 # ==========================================
 if __name__ == "__main__":
     file_name = TRAIN_FILE
     os.makedirs(TRAINING_RESULTS_DIR, exist_ok=True)
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
     run_output_dir = get_run_output_dir(run_timestamp)
-    print(f"本次训练时间戳: {run_timestamp}")
-    print(f"本次结果目录: {run_output_dir}")
+    print(f"Run timestamp: {run_timestamp}")
+    print(f"Run output directory: {run_output_dir}")
     
     for scale in TRAINING_SCALE:
         if scale is None:
-            input("\n⚠️ 准备进入全量 CatBoost 训练阶段！按回车键 (Enter) 继续...")
+            input("\nAbout to start full-data CatBoost training. Press Enter to continue...")
             
         df, feature_cols = load_and_preprocess(file_name, scale=scale)
         scale_tag = str(scale) if scale is not None else 'all'
@@ -486,8 +486,8 @@ if __name__ == "__main__":
             },
         )
         append_summary_row(TRAINING_SUMMARY_CSV, run_summary_row)
-        print(f"🗂️ 本次完整运行摘要已追加到: {TRAINING_SUMMARY_CSV}")
+        print(f"Run summary appended to: {TRAINING_SUMMARY_CSV}")
         
         print("\n" + "="*50)
-        print(f"✅ 规模 {scale if scale else 'ALL'} 的 CatBoost 双目标训练全部结束！")
+        print(f"CatBoost dual-target training finished for scale {scale if scale else 'ALL'}.")
         print("="*50 + "\n")

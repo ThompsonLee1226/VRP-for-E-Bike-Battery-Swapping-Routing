@@ -10,7 +10,7 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
-# 统一管理输入输出文件名，方便后续修改与复用
+# Centralized input/output configuration
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [20000, 
@@ -20,64 +20,64 @@ TRAINING_RESULTS_DIR = 'Training_Results_LightGBM'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_{target}_{scale}_{ts}.png'
 
-# 统一管理训练超参数，便于集中调参
-TRAIN_VALID_TEST_SIZE = 0.2      # 验证集占比，越大评估更稳但训练样本更少
-TRAIN_VALID_RANDOM_STATE = 42    # 固定随机种子，保证每次切分可复现
-LGB_CATEGORICAL_FEATURES = ['h3'] # LightGBM 原生类别特征列
+# Centralized hyperparameters
+TRAIN_VALID_TEST_SIZE = 0.2      # Validation split ratio
+TRAIN_VALID_RANDOM_STATE = 42    # Fixed random seed for reproducibility
+LGB_CATEGORICAL_FEATURES = ['h3'] # Native categorical feature columns for LightGBM
 
 LGB_PARAMS = {
-    'objective': 'regression',   # 回归任务
-    'metric': 'rmse',            # 验证指标：均方根误差
-    'boosting_type': 'gbdt',     # 梯度提升树
-    'learning_rate': 0.05,       # 学习率，越小通常越稳但需要更多轮
-    'num_leaves': 63,            # 单棵树复杂度，越大拟合能力越强
-    'feature_fraction': 0.8,     # 每轮采样特征比例，降低过拟合风险
-    'n_jobs': -1,                # 并行线程
+    'objective': 'regression',   # Regression task
+    'metric': 'rmse',            # Validation metric: RMSE
+    'boosting_type': 'gbdt',     # Gradient boosting decision trees
+    'learning_rate': 0.05,       # Learning rate
+    'num_leaves': 63,            # Tree complexity
+    'feature_fraction': 0.8,     # Feature subsampling ratio
+    'n_jobs': -1,                # Parallel threads
     'verbose': -1                
 }
 
-LGB_NUM_BOOST_ROUND = 3000       # 最大迭代轮数上限
-LGB_EARLY_STOPPING_ROUNDS = 50   # 验证集连续多少轮无提升则早停
-LGB_LOG_EVAL_PERIOD = 50         # 每多少轮打印一次评估日志
-LGB_PROGRESS_REFRESH_EVERY = 10  # 终端进度条刷新频率
+LGB_NUM_BOOST_ROUND = 3000       # Max boosting rounds
+LGB_EARLY_STOPPING_ROUNDS = 50   # Early stop patience rounds
+LGB_LOG_EVAL_PERIOD = 50         # Logging period
+LGB_PROGRESS_REFRESH_EVERY = 10  # Progress bar refresh frequency
 
 # ==========================================
-# 1. 工业级数据预处理管道 (Data Pipeline)
+# 1. Data preprocessing pipeline
 # ==========================================
 def load_and_preprocess(file_path, scale=None):
     """
-    加载并处理数据
-    :param file_path: 数据文件路径
-    :param scale: 抽样规模（整数），如果不填(None)则读取全量数据
+    Load and preprocess data.
+    :param file_path: input data file path
+    :param scale: sampled row count; None means full dataset
     """
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载数据...")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading data...")
     if scale:
-        print(f"当前模式：小规模试跑，读取前 {scale} 行。")
+        print(f"Mode: small-scale run, reading first {scale} rows.")
         df = pd.read_csv(file_path, nrows=scale)
     else:
-        print(f"当前模式：全量数据训练！(这可能需要占用较多内存)")
+        print("Mode: full-data training (may require high memory).")
         df = pd.read_csv(file_path)
     
-    print(f"数据加载完成，形状: {df.shape}")
+    print(f"Data loaded. Shape: {df.shape}")
 
-    # A. 剔除在 EDA 报告中被判定为无用/低信息的列
+    # A. Drop columns identified as low-information in EDA.
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
 
-    # B. 类别特征转换
+    # B. Convert categorical features.
     if 'h3' in df.columns:
         df['h3'] = df['h3'].astype('category')
         
-    # C. 缺失值处理
+    # C. Missing value handling.
     df = fill_missing_values(df)
 
-    # D. 定义特征集合
+    # D. Define feature set.
     features = [
         'h3', 'temperature', 'wind_level', 'rain_level', 
         'month', 'day_of_week', 'is_weekend', 'hour',
         'rent_mean_7d', 'return_mean_7d', 'lag_nb_rent', 'lag_nb_return',
         'normal_power_bike_count', 'soon_low_power_bike_count', 'low_power_bike_count',
-        'latitude', 'longitude' # 空间异质性特征
+        'latitude', 'longitude' # Spatial heterogeneity features
     ]
     
     return df, features
@@ -85,10 +85,10 @@ def load_and_preprocess(file_path, scale=None):
 
 def fill_missing_values(df):
     """
-    统一处理缺失值：
-    - 类别列补 "missing"（若类别集中不存在，先新增该类别）
-    - 非类别列补 0
-    这样可避免 pandas 对 category 列直接填 0 导致的类型错误。
+    Unified missing-value strategy:
+    - Fill categorical columns with "missing" (add category if needed)
+    - Fill non-categorical columns with 0
+    This prevents pandas category-type fill errors.
     """
     for col in df.columns:
         if pd.api.types.is_categorical_dtype(df[col]):
@@ -102,20 +102,20 @@ def fill_missing_values(df):
 
 def validate_required_columns(df, required_cols, dataset_name):
     """
-    检查数据集中是否包含必需列。
-    如果有缺失列，直接抛出错误，避免训练阶段才报错。
+    Validate required columns before train/predict steps.
+    Raise early if anything is missing.
     """
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise ValueError(
-            f"{dataset_name} 缺少必要字段: {missing}. "
-            f"当前可用字段数: {len(df.columns)}"
+            f"{dataset_name} missing required columns: {missing}. "
+            f"Current available column count: {len(df.columns)}"
         )
 
 
 def get_run_output_dir(run_timestamp):
     """
-    基于运行时间戳创建并返回本次训练专属输出目录。
+    Create and return run-specific output directory by timestamp.
     """
     run_output_dir = os.path.join(TRAINING_RESULTS_DIR, run_timestamp)
     os.makedirs(run_output_dir, exist_ok=True)
@@ -124,17 +124,16 @@ def get_run_output_dir(run_timestamp):
 
 def plot_training_progress(eval_results, target_name, scale_tag, run_timestamp, run_output_dir):
     """
-    将训练过程中的 RMSE 变化可视化并保存为图片。
-    目的：快速观察是否收敛、是否过拟合（训练集下降而验证集不降）。
+    Save train/valid RMSE curves for convergence/overfitting checks.
     """
-    # LightGBM 评估结果结构示例：
-    # eval_results['训练集']['rmse'] -> 每一轮训练集 RMSE 列表
-    # eval_results['验证集']['rmse'] -> 每一轮验证集 RMSE 列表
-    train_rmse = eval_results.get('训练集', {}).get('rmse', [])
-    valid_rmse = eval_results.get('验证集', {}).get('rmse', [])
+    # LightGBM eval result structure:
+    # eval_results['train']['rmse'] -> train RMSE by round
+    # eval_results['valid']['rmse'] -> valid RMSE by round
+    train_rmse = eval_results.get('train', {}).get('rmse', [])
+    valid_rmse = eval_results.get('valid', {}).get('rmse', [])
 
     if not train_rmse or not valid_rmse:
-        print(f"⚠️ 未捕获到 {target_name} 的训练过程指标，跳过可视化。")
+        print(f"Warning: no training metrics captured for {target_name}, skip plotting.")
         return
 
     fig_path = os.path.join(
@@ -155,12 +154,12 @@ def plot_training_progress(eval_results, target_name, scale_tag, run_timestamp, 
     plt.savefig(fig_path, dpi=140)
     plt.close()
 
-    print(f"📈 训练进度图已保存: {fig_path}")
+    print(f"Training progress figure saved: {fig_path}")
 
 
 def format_seconds(seconds):
     """
-    将秒数格式化为 HH:MM:SS，便于在终端展示 ETA。
+    Format seconds into HH:MM:SS for ETA display.
     """
     seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
@@ -170,10 +169,7 @@ def format_seconds(seconds):
 
 def create_progress_bar_callback(target_name, width=30, refresh_every=5):
     """
-    LightGBM 训练进度条回调：在终端动态显示
-    - 当前迭代进度
-    - 已耗时
-    - 预计剩余时间（ETA）
+    LightGBM progress bar callback with iteration/elapsed/ETA.
     """
     start_time = time.time()
 
@@ -181,7 +177,7 @@ def create_progress_bar_callback(target_name, width=30, refresh_every=5):
         current_iter = env.iteration + 1
         total_iter = env.end_iteration
 
-        # 控制刷新频率，避免终端刷屏；最后一轮强制刷新
+        # Control refresh frequency to avoid excessive terminal output.
         if (current_iter % refresh_every != 0) and (current_iter != total_iter):
             return
 
@@ -209,23 +205,23 @@ def create_progress_bar_callback(target_name, width=30, refresh_every=5):
     return _callback
 
 # ==========================================
-# 2. 核心训练函数 (Training Engine)
+# 2. Core training function (Training Engine)
 # ==========================================
 def train_model(df, features, target_name, scale_tag='all', run_timestamp='unknown', run_output_dir='.'):
     """
-    针对指定目标（rent 或 return）训练 LightGBM
+    Train LightGBM for a specific target (rent or return).
     """
     print(f"\n{'='*40}")
-    print(f"开始训练目标变量: 【{target_name}】")
+    print(f"Start training target: [{target_name}]")
     print(f"{'='*40}")
 
-    # 训练前先做字段校验，给出更早、更清晰的报错信息
-    validate_required_columns(df, features + [target_name], '训练集')
+    # Validate columns early for clearer failures.
+    validate_required_columns(df, features + [target_name], 'train set')
 
     X = df[features]
     y = df[target_name]
 
-    # 按时间顺序或随机拆分（这里使用随机拆分，保留20%作为验证集）
+    # Use random split with 20% validation.
     X_train, X_valid, y_train, y_valid = train_test_split(
         X,
         y,
@@ -233,22 +229,22 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         random_state=TRAIN_VALID_RANDOM_STATE
     )
 
-    # 封装成 LightGBM 专用的 Dataset 格式（能极大降低内存占用，提升速度）
+    # Pack into LightGBM Dataset format.
     train_data = lgb.Dataset(X_train, label=y_train, categorical_feature=LGB_CATEGORICAL_FEATURES)
     valid_data = lgb.Dataset(X_valid, label=y_valid, reference=train_data)
 
-    print(f"[{time.strftime('%H:%M:%S')}] 正在建树，请关注下方误差下降情况：")
+    print(f"[{time.strftime('%H:%M:%S')}] Building trees; monitor error trend below:")
 
-    # 用于保存每一轮评估指标，后续可视化训练进度
+    # Collect per-round metrics for progress plots.
     eval_results = {}
     
-    # 训练模型，并设置回调函数来观察进度
+    # Train model with callbacks.
     model = lgb.train(
         LGB_PARAMS,
         train_data,
         num_boost_round=LGB_NUM_BOOST_ROUND,
         valid_sets=[train_data, valid_data],
-        valid_names=['训练集', '验证集'],
+        valid_names=['train', 'valid'],
         callbacks=[
             create_progress_bar_callback(target_name=target_name, refresh_every=LGB_PROGRESS_REFRESH_EVERY),
             lgb.record_evaluation(eval_results),
@@ -257,26 +253,26 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         ]
     )
 
-    # 若触发提前停止，补打一行最终状态，避免误解为“还没跑完”。
+    # Print final stop status if early stopping is triggered.
     if model.best_iteration < LGB_NUM_BOOST_ROUND:
-        print(f"[{target_name}] 提前停止于第 {model.best_iteration} 轮（已启用 early_stopping）。")
+        print(f"[{target_name}] Early stopped at round {model.best_iteration} (early_stopping enabled).")
 
-    # 最终评估
+    # Final evaluation
     y_pred = model.predict(X_valid, num_iteration=model.best_iteration)
     final_rmse = np.sqrt(mean_squared_error(y_valid, y_pred))
-    print(f"\n🎉 【{target_name}】模型训练完成！最优迭代次数: {model.best_iteration}")
-    print(f"🎯 最终验证集 RMSE: {final_rmse:.4f}")
+    print(f"\nTraining complete for [{target_name}]! Best iteration: {model.best_iteration}")
+    print(f"Final validation RMSE: {final_rmse:.4f}")
 
-    # 提取特征重要性，便于写报告
+    # Feature importance for reporting.
     importance = pd.DataFrame({
         'feature': features,
-        'importance': model.feature_importance(importance_type='gain') # 使用 gain (信息增益) 衡量
+        'importance': model.feature_importance(importance_type='gain') # Use gain-based importance
     }).sort_values(by='importance', ascending=False)
     
-    print(f"📊 特征重要性 Top 5:")
+    print("Top 5 feature importances:")
     print(importance.head(5).to_string(index=False))
 
-    # 生成并保存训练过程曲线图
+    # Save training progress curves.
     plot_training_progress(
         eval_results,
         target_name=target_name,
@@ -291,63 +287,63 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 def predict_on_test_data(models, feature_cols, test_file, output_file):
     
     """
-    使用训练好的 rent/return 模型对测试集做预测，并导出结果。
+    Predict on test set with trained rent/return models and export results.
     :param models: {'rent': rent_model, 'return': return_model}
-    :param feature_cols: 训练时使用的特征列
-    :param test_file: 测试集 CSV 路径
-    :param output_file: 预测结果输出路径
+    :param feature_cols: feature columns used in training
+    :param test_file: test CSV path
+    :param output_file: output prediction file path
     """
-    print(f"\n[{time.strftime('%H:%M:%S')}] 开始加载测试集: {test_file}")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set: {test_file}")
     test_df = pd.read_csv(test_file)
-    print(f"测试集加载完成，形状: {test_df.shape}")
+    print(f"Test set loaded. Shape: {test_df.shape}")
 
-    # 对测试集做与训练一致的预处理，确保特征工程对齐
+    # Apply the same preprocessing as training.
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     test_df = test_df.drop(columns=[c for c in cols_to_drop if c in test_df.columns], errors='ignore')
     if 'h3' in test_df.columns:
         test_df['h3'] = test_df['h3'].astype('category')
     test_df = fill_missing_values(test_df)
 
-    validate_required_columns(test_df, feature_cols, '测试集')
+    validate_required_columns(test_df, feature_cols, 'test set')
     X_test = test_df[feature_cols]
 
-    # 同时输出两个目标的预测结果
+    # Predict both targets.
     result_df = pd.DataFrame(index=test_df.index)
     result_df['rent_pred'] = models['rent'].predict(X_test, num_iteration=models['rent'].best_iteration)
     result_df['return_pred'] = models['return'].predict(X_test, num_iteration=models['return'].best_iteration)
 
-    # 尽量保留一个可追踪主键，便于后续和原测试集做对齐
+    # Keep one traceable ID column for downstream alignment.
     for id_col in ['id', 'station_id', 'h3']:
         if id_col in test_df.columns:
             result_df.insert(0, id_col, test_df[id_col].values)
             break
 
     result_df.to_csv(output_file, index=False)
-    print(f"✅ 测试集预测完成，结果已保存到: {output_file}")
+    print(f"Test prediction complete. Saved to: {output_file}")
 
 # ==========================================
-# 3. 任务执行流 (Main Pipeline)
+# 3. Main pipeline
 # ==========================================
 if __name__ == "__main__":
     file_name = TRAIN_FILE
     os.makedirs(TRAINING_RESULTS_DIR, exist_ok=True)
     run_timestamp = time.strftime('%Y%m%d_%H%M%S')
     run_output_dir = get_run_output_dir(run_timestamp)
-    print(f"本次训练时间戳: {run_timestamp}")
-    print(f"本次结果目录: {run_output_dir}")
+    print(f"Run timestamp: {run_timestamp}")
+    print(f"Run output directory: {run_output_dir}")
     
-    # 规模设置
+    # Scale settings
     training_scales = TRAINING_SCALE 
     
     for scale in training_scales:
         if scale is None:
-            input("\n⚠️ 准备进入全量数据训练阶段。请确保服务器内存充足！按回车键 (Enter) 继续...")
+            input("\nAbout to start full-data training. Ensure enough memory, then press Enter to continue...")
             
-        # 1. 获取数据
+        # 1. Load data.
         df, feature_cols = load_and_preprocess(file_name, scale=scale)
         scale_tag = str(scale) if scale is not None else 'all'
         
-        # 2. 训练“流出率”模型 (rent)
+        # 2. Train outflow model (rent).
         rent_model = train_model(
             df,
             feature_cols,
@@ -357,7 +353,7 @@ if __name__ == "__main__":
             run_output_dir=run_output_dir
         )
         
-        # 3. 训练“流入率”模型 (return)
+        # 3. Train inflow model (return).
         return_model = train_model(
             df,
             feature_cols,
@@ -367,7 +363,7 @@ if __name__ == "__main__":
             run_output_dir=run_output_dir
         )
 
-        # 4. 对测试集进行双目标预测，并导出结果文件
+        # 4. Predict both targets on test set and export result file.
         output_file = os.path.join(
             run_output_dir,
             PREDICTION_OUTPUT_TEMPLATE.format(
@@ -383,5 +379,5 @@ if __name__ == "__main__":
         )
         
         print("\n" + "="*50)
-        print(f"✅ 规模 {scale if scale else 'ALL'} 的双目标训练与测试集预测全部结束！")
+        print(f"Dual-target training and test prediction completed for scale {scale if scale else 'ALL'}.")
         print("="*50 + "\n")
