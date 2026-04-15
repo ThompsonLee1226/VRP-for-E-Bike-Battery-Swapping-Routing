@@ -1,7 +1,7 @@
 """Central training configuration.
 
 Edit this file only when you want to change input files, split settings,
-model hyperparameters, or output locations.
+model hyperparameters, batch-sweep parameters, or output locations.
 """
 
 from __future__ import annotations
@@ -13,9 +13,10 @@ TRAIN_FILE = 'battery_swapping_routing_data_train_time70.csv'  # Training CSV pa
 TEST_FILE = 'battery_swapping_routing_data_valid_time30.csv'  # Validation/Test CSV path
 TRAINING_SCALE = [None]  # Row scale list; None means full dataset
 TRAINING_RESULTS_DIR = 'Training_Results_CatBoost'  # Root results directory
-TRAINING_SUMMARY_CSV = os.path.join(TRAINING_RESULTS_DIR, 'training_summary.csv')  # Long-term summary CSV path
+TRAINING_SUMMARY_CSV = 'training_summary_catboost.csv'  # Long-term summary CSV path (project root, outside ignored results dir)
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_scale_{scale}_{ts}.csv'  # Prediction filename template
 PROGRESS_PLOT_TEMPLATE = 'training_progress_CB_{target}_{scale}_{ts}.png'  # Training-curve filename template
+CB_ALLOW_WRITING_FILES = False  # Disable CatBoost internal training-info files
 
 # Target transformation and evaluation space
 USE_LOG_TARGET = True  # Whether to apply log1p on target y
@@ -46,3 +47,15 @@ CB_PARAMS = {
 }
 CB_ITERATIONS = 2000  # Max training iterations
 CB_LOG_EVAL_PERIOD = 5  # Log interval in rounds
+
+# Batch sweep settings
+AUTO_BATCH_RUN_PREFIX = 'auto_cb'
+AUTO_BATCH_TRAIN_SCALE = None  # None = full-data training; set an int for quick sweeps
+AUTO_BATCH_MAX_RUNS = 0  # 0 = run all parameter combinations
+AUTO_BATCH_PARAM_GRID = {
+    'learning_rate': [0.015, 0.02, 0.03],
+    'depth': [8, 9, 10],
+    'l2_leaf_reg': [3.0, 4.0, 5.0],
+    'od_wait': [25],
+    'iterations': [3000],
+}

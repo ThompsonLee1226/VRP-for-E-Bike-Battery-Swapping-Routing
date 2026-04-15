@@ -2,9 +2,10 @@
 
 Goals:
 1. Sweep multiple parameter combinations for CatBoost training.
-2. Append parameters + training results into existing training_summary.csv.
+2. Append parameters + training results into the configured training_summary.csv.
 
-This file keeps current project architecture unchanged and only wraps CatBoost_train.py.
+Parameter grids and output locations live in training_config.py so the sweep can
+be adjusted without editing this file.
 """
 
 from __future__ import annotations
@@ -23,26 +24,19 @@ from training_summary_manager import build_run_summary_row
 # =========================
 # Batch run configuration
 # =========================
-# Change these values directly in this file. No CLI arguments are required.
 TRAIN_FILE = cb_train.TRAIN_FILE
 TEST_FILE = cb_train.TEST_FILE
-RUN_PREFIX = "auto_cb"
-TRAIN_SCALE: Optional[int] = None  # None = full-data training; e.g. 20000 for quick test
-MAX_RUNS = 0  # 0 = run all parameter combinations
+RUN_PREFIX = cb_train.AUTO_BATCH_RUN_PREFIX
+TRAIN_SCALE: Optional[int] = cb_train.AUTO_BATCH_TRAIN_SCALE
+MAX_RUNS = cb_train.AUTO_BATCH_MAX_RUNS
 
 
 def build_param_grid() -> Dict[str, List[Any]]:
     """Define parameter combinations for sweep.
 
-    Edit only this function when you want to try new parameter values.
+    Edit AUTO_BATCH_PARAM_GRID in training_config.py when you want new values.
     """
-    return {
-        "learning_rate": [0.015, 0.02, 0.03],
-        "depth": [8, 9, 10],
-        "l2_leaf_reg": [3.0, 4.0, 5.0],
-        "od_wait": [25],
-        "iterations": [3000],
-    }
+    return copy.deepcopy(cb_train.AUTO_BATCH_PARAM_GRID)
 
 
 def iter_param_combinations(grid: Dict[str, List[Any]]) -> Iterable[Dict[str, Any]]:

@@ -48,6 +48,7 @@ TIME_SPLIT_COLUMN = cfg_value('TIME_SPLIT_COLUMN', 'datetime')
 TIME_SPLIT_RATIO = cfg_value('TIME_SPLIT_RATIO', 0.7)
 TIME_SPLIT_ASCENDING = cfg_value('TIME_SPLIT_ASCENDING', True)
 CB_CATEGORICAL_FEATURES = cfg_value('CB_CATEGORICAL_FEATURES', ['h3']) # CatBoost native categorical features
+CB_ALLOW_WRITING_FILES = cfg_value('CB_ALLOW_WRITING_FILES', False)
 
 
 CB_PARAMS = cfg_value('CB_PARAMS', {
@@ -269,18 +270,19 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
     # Extract categorical feature indices in the feature list.
     cat_features_indices = [features.index(f) for f in CB_CATEGORICAL_FEATURES if f in features]
-    catboost_train_dir = get_catboost_train_dir(run_output_dir)
-
     print(f"[{time.strftime('%H:%M:%S')}] Building trees; monitor error reduction below:")
 
     # Initialize CatBoost regressor
-    model = cb.CatBoostRegressor(
+    model_kwargs = dict(
         iterations=CB_ITERATIONS,
         cat_features=cat_features_indices,
-        train_dir=catboost_train_dir,
-        allow_writing_files=True,
-        **CB_PARAMS
+        allow_writing_files=CB_ALLOW_WRITING_FILES,
+        **CB_PARAMS,
     )
+    if CB_ALLOW_WRITING_FILES:
+        model_kwargs['train_dir'] = get_catboost_train_dir(run_output_dir)
+
+    model = cb.CatBoostRegressor(**model_kwargs)
 
     # Train model
     model.fit(
