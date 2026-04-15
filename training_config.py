@@ -26,7 +26,7 @@ TRAIN_VALID_TEST_SIZE = 0.2  # Validation ratio for random split
 TRAIN_VALID_RANDOM_STATE = 42  # Random seed for split reproducibility
 SPLIT_MODE = 'time'  # Split mode: random | time
 TIME_SPLIT_COLUMN = 'datetime'  # Time column name for time-based split
-TIME_SPLIT_RATIO = 0.8  # Training ratio in time split (first 80% train, last 20% valid)
+TIME_SPLIT_RATIO = 0.8  # Training ratio in time split
 TIME_SPLIT_ASCENDING = True  # Time order, True means old -> new
 
 # Model settings
@@ -34,15 +34,15 @@ CB_CATEGORICAL_FEATURES = ['h3']  # CatBoost categorical feature list
 CB_PARAMS = {
     'loss_function': 'RMSE',  # Training objective
     'eval_metric': 'RMSE',  # Training monitoring metric
-    'learning_rate': 0.03,  # Learning rate
-    'depth': 9,  # Tree depth
+    'learning_rate': 0.015,  # Learning rate
+    'depth': 8,  # Tree depth
     'l2_leaf_reg': 4.0,  # L2 regularization
     'random_seed': TRAIN_VALID_RANDOM_STATE,  # Model random seed
-    'task_type': 'CPU',  # Training device type
+    'task_type': 'GPU',  # Training device type
     'devices': '0:1',  # GPU device IDs
     'thread_count': -1,  # CPU threads, -1 means auto
     'od_type': 'Iter',  # Early-stopping strategy type
-    'od_wait': 10,  # Early-stopping wait rounds
+    'od_wait': 20,  # Early-stopping wait rounds
 }
-CB_ITERATIONS = 1000  # Max training iterations
+CB_ITERATIONS = 2000  # Max training iterations
 CB_LOG_EVAL_PERIOD = 5  # Log interval in rounds
