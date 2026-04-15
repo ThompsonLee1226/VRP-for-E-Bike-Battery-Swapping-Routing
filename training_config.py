@@ -51,11 +51,11 @@ CB_LOG_EVAL_PERIOD = 5  # Log interval in rounds
 # Batch sweep settings
 AUTO_BATCH_RUN_PREFIX = 'auto_cb'
 AUTO_BATCH_TRAIN_SCALE = None  # None = full-data training; set an int for quick sweeps
-AUTO_BATCH_MAX_RUNS = 0  # 0 = run all parameter combinations
+AUTO_BATCH_MAX_RUNS = 1  # 0 = run all parameter combinations
 AUTO_BATCH_PARAM_GRID = {
-    'learning_rate': [0.015, 0.02, 0.03],
+    'learning_rate': [0.015, 0.02, 0.03, 0.05],
     'depth': [8, 9, 10],
     'l2_leaf_reg': [3.0, 4.0, 5.0],
-    'od_wait': [25],
+    'od_wait': [15, 30],
     'iterations': [3000],
 }

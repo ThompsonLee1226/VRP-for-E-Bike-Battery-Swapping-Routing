@@ -20,15 +20,26 @@ import CatBoost_train as cb_train
 from training_summary_manager import append_row as append_summary_row
 from training_summary_manager import build_run_summary_row
 
+try:
+    import training_config as cfg
+except ImportError:
+    cfg = None
+
+
+def cfg_value(name, default):
+    if cfg is None:
+        return default
+    return getattr(cfg, name, default)
+
 
 # =========================
 # Batch run configuration
 # =========================
 TRAIN_FILE = cb_train.TRAIN_FILE
 TEST_FILE = cb_train.TEST_FILE
-RUN_PREFIX = cb_train.AUTO_BATCH_RUN_PREFIX
-TRAIN_SCALE: Optional[int] = cb_train.AUTO_BATCH_TRAIN_SCALE
-MAX_RUNS = cb_train.AUTO_BATCH_MAX_RUNS
+RUN_PREFIX = cfg_value('AUTO_BATCH_RUN_PREFIX', 'auto_cb')
+TRAIN_SCALE: Optional[int] = cfg_value('AUTO_BATCH_TRAIN_SCALE', None)
+MAX_RUNS = cfg_value('AUTO_BATCH_MAX_RUNS', 0)
 
 
 def build_param_grid() -> Dict[str, List[Any]]:
@@ -36,7 +47,13 @@ def build_param_grid() -> Dict[str, List[Any]]:
 
     Edit AUTO_BATCH_PARAM_GRID in training_config.py when you want new values.
     """
-    return copy.deepcopy(cb_train.AUTO_BATCH_PARAM_GRID)
+    return copy.deepcopy(cfg_value('AUTO_BATCH_PARAM_GRID', {
+        'learning_rate': [0.015, 0.02, 0.03],
+        'depth': [8, 9, 10],
+        'l2_leaf_reg': [3.0, 4.0, 5.0],
+        'od_wait': [25],
+        'iterations': [3000],
+    }))
 
 
 def iter_param_combinations(grid: Dict[str, List[Any]]) -> Iterable[Dict[str, Any]]:

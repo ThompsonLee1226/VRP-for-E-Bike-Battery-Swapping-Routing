@@ -9,7 +9,9 @@ import pandas as pd
 
 
 def append_row(csv_path: str, row: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    parent_dir = os.path.dirname(csv_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
     summary_df = pd.DataFrame([row])
     if os.path.exists(csv_path):
         summary_df.to_csv(csv_path, mode='a', header=False, index=False)
