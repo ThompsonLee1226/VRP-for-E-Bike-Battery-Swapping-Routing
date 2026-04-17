@@ -18,9 +18,14 @@ PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_scale_{scale}_{ts}.csv'  # Predictio
 PROGRESS_PLOT_TEMPLATE = 'training_progress_CB_{target}_{scale}_{ts}.png'  # Training-curve filename template
 CB_ALLOW_WRITING_FILES = False  # Disable CatBoost internal training-info files
 
+# Hurdle-specific output (shared config file)
+HURDLE_TRAINING_RESULTS_DIR = 'Training_Results_CatBoost_Hurdle'
+HURDLE_PREDICTION_OUTPUT_TEMPLATE = 'prediction_CB_Hurdle_scale_{scale}_{ts}.csv'
+HURDLE_PROGRESS_PLOT_TEMPLATE = 'training_progress_CB_hurdle_{target}_{context}_{scale}_{ts}.png'
+
 # Target transformation and evaluation space
-USE_LOG_TARGET = True  # Whether to apply log1p on target y
-REPORT_METRIC_SPACE = 'auto'  # Metric space: auto (follow USE_LOG_TARGET) | log | raw
+USE_LOG_TARGET = False  # Poisson loss expects raw target values
+REPORT_METRIC_SPACE = 'raw'  # Metric space: auto (follow USE_LOG_TARGET) | log | raw
 
 # Data split settings
 TRAIN_VALID_TEST_SIZE = 0.2  # Validation ratio for random split
@@ -33,8 +38,8 @@ TIME_SPLIT_ASCENDING = True  # Time order, True means old -> new
 # Model settings
 CB_CATEGORICAL_FEATURES = ['h3']  # CatBoost categorical feature list
 CB_PARAMS = {
-    'loss_function': 'RMSE',  # Training objective
-    'eval_metric': 'RMSE',  # Training monitoring metric
+    'loss_function': 'Poisson',  # Training objective
+    'eval_metric': 'Poisson',  # Training monitoring metric
     'learning_rate': 0.015,  # Learning rate
     'depth': 8,  # Tree depth
     'l2_leaf_reg': 4.0,  # L2 regularization
@@ -51,7 +56,10 @@ CB_LOG_EVAL_PERIOD = 5  # Log interval in rounds
 # Batch sweep settings
 AUTO_BATCH_RUN_PREFIX = 'auto_cb'
 AUTO_BATCH_TRAIN_SCALE = None  # None = full-data training; set an int for quick sweeps
-AUTO_BATCH_MAX_RUNS = 1  # 0 = run all parameter combinations
+AUTO_BATCH_MAX_RUNS = 0  # 0 = run all parameter combinations
+
+AUTO_BATCH_MODEL_TYPE = 'CB'  # Choose Model Type: CB | CB_Hurdle
+
 AUTO_BATCH_PARAM_GRID = {
     'learning_rate': [0.015, 0.02, 0.03, 0.05],
     'depth': [8, 9, 10],

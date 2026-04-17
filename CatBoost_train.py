@@ -3,7 +3,7 @@ import numpy as np
 import catboost as cb
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_poisson_deviance
 import time
 import os
 import sys
@@ -37,8 +37,8 @@ TRAINING_RESULTS_DIR = cfg_value('TRAINING_RESULTS_DIR', 'Training_Results_CatBo
 TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', os.path.join(TRAINING_RESULTS_DIR, 'training_summary.csv'))
 PREDICTION_OUTPUT_TEMPLATE = cfg_value('PREDICTION_OUTPUT_TEMPLATE', 'prediction_CB_scale_{scale}_{ts}.csv')
 PROGRESS_PLOT_TEMPLATE = cfg_value('PROGRESS_PLOT_TEMPLATE', 'training_progress_CB_{target}_{scale}_{ts}.png')
-USE_LOG_TARGET = cfg_value('USE_LOG_TARGET', True)           # Apply log1p on target; affects training and evaluation space
-REPORT_METRIC_SPACE = cfg_value('REPORT_METRIC_SPACE', 'auto')
+USE_LOG_TARGET = cfg_value('USE_LOG_TARGET', False)          # Poisson expects raw targets
+REPORT_METRIC_SPACE = cfg_value('REPORT_METRIC_SPACE', 'raw')
 
 # Centralized training hyperparameters
 TRAIN_VALID_TEST_SIZE = cfg_value('TRAIN_VALID_TEST_SIZE', 0.2)
@@ -52,8 +52,8 @@ CB_ALLOW_WRITING_FILES = cfg_value('CB_ALLOW_WRITING_FILES', False)
 
 
 CB_PARAMS = cfg_value('CB_PARAMS', {
-    'loss_function': 'RMSE',
-    'eval_metric': 'RMSE',
+    'loss_function': 'Poisson',
+    'eval_metric': 'Poisson',
     'learning_rate': 0.03,
     'depth': 9,                  # Symmetric tree depth
     'l2_leaf_reg': 4.0,          # L2 regularization
@@ -257,6 +257,9 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     report_space = resolve_report_metric_space()
     target_space_desc = 'log1p(target)' if USE_LOG_TARGET else 'raw target'
 
+    if CB_PARAMS['loss_function'] == 'Poisson' and USE_LOG_TARGET:
+        raise ValueError("Poisson loss expects raw targets; set USE_LOG_TARGET=False")
+
     if USE_LOG_TARGET:
         y = np.log1p(y)
 
@@ -299,46 +302,55 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     print(f"Training monitor metric (eval_metric): {CB_PARAMS['eval_metric']}, target space: {target_space_desc}")
 
     best_score = model.get_best_score()
-    valid_rmse_objective = best_score.get('validation', {}).get('RMSE', None)
+    metric_key = CB_PARAMS['eval_metric']
+    valid_metric_objective = best_score.get('validation', {}).get(metric_key, None)
 
-    if report_space == 'log':
-        train_rmse_curve = model.evals_result_.get('learn', {}).get('RMSE', [])
-        valid_rmse_curve = model.evals_result_.get('validation', {}).get('RMSE', [])
+    if metric_key == 'Poisson':
+        train_curve = model.evals_result_.get('learn', {}).get(metric_key, [])
+        valid_curve = model.evals_result_.get('validation', {}).get(metric_key, [])
+        y_pred_for_report = np.clip(model.predict(X_valid), 0, None)
+        final_metric = mean_poisson_deviance(y_valid_raw, y_pred_for_report)
+        if valid_metric_objective is not None:
+            print(f"Best validation Poisson (objective): {valid_metric_objective:.4f}")
+        print(f"Final validation Poisson deviance (raw space): {final_metric:.4f}")
+    elif report_space == 'log':
+        train_curve = model.evals_result_.get('learn', {}).get('RMSE', [])
+        valid_curve = model.evals_result_.get('validation', {}).get('RMSE', [])
         y_pred_for_report = model.predict(X_valid)
-        final_rmse = rmse_value(y_valid, y_pred_for_report)
-        if valid_rmse_objective is not None:
-            print(f"Best validation RMSE (log space): {valid_rmse_objective:.4f}")
+        final_metric = rmse_value(y_valid, y_pred_for_report)
+        if valid_metric_objective is not None:
+            print(f"Best validation RMSE (log space): {valid_metric_objective:.4f}")
+        print(f"Final validation RMSE ({report_space} space): {final_metric:.4f}")
     else:
-        train_rmse_curve = []
-        valid_rmse_curve = []
+        train_curve = []
+        valid_curve = []
         for pred_train_step, pred_valid_step in zip(model.staged_predict(X_train), model.staged_predict(X_valid)):
             if USE_LOG_TARGET:
                 pred_train_eval = np.clip(np.expm1(pred_train_step), 0, None)
                 pred_valid_eval = np.clip(np.expm1(pred_valid_step), 0, None)
-                train_rmse_curve.append(rmse_value(y_train_raw, pred_train_eval))
-                valid_rmse_curve.append(rmse_value(y_valid_raw, pred_valid_eval))
+                train_curve.append(rmse_value(y_train_raw, pred_train_eval))
+                valid_curve.append(rmse_value(y_valid_raw, pred_valid_eval))
             else:
                 pred_train_eval = np.clip(pred_train_step, 0, None)
                 pred_valid_eval = np.clip(pred_valid_step, 0, None)
-                train_rmse_curve.append(rmse_value(y_train, pred_train_eval))
-                valid_rmse_curve.append(rmse_value(y_valid, pred_valid_eval))
+                train_curve.append(rmse_value(y_train, pred_train_eval))
+                valid_curve.append(rmse_value(y_valid, pred_valid_eval))
 
         y_pred_for_report = model.predict(X_valid)
         if USE_LOG_TARGET:
             y_pred_for_report = np.clip(np.expm1(y_pred_for_report), 0, None)
-            final_rmse = rmse_value(y_valid_raw, y_pred_for_report)
+            final_metric = rmse_value(y_valid_raw, y_pred_for_report)
         else:
             y_pred_for_report = np.clip(y_pred_for_report, 0, None)
-            final_rmse = rmse_value(y_valid, y_pred_for_report)
+            final_metric = rmse_value(y_valid, y_pred_for_report)
 
-        if valid_rmse_curve:
-            best_iter_for_curve = best_iter if best_iter is not None and best_iter >= 0 else len(valid_rmse_curve) - 1
-            best_iter_for_curve = min(best_iter_for_curve, len(valid_rmse_curve) - 1)
-            print(f"Best validation RMSE (raw space): {valid_rmse_curve[best_iter_for_curve]:.4f}")
-        if valid_rmse_objective is not None:
-            print(f"Reference: native CatBoost log RMSE (objective space): {valid_rmse_objective:.4f}")
-    
-    print(f"Final validation RMSE ({report_space} space): {final_rmse:.4f}")
+        if valid_curve:
+            best_iter_for_curve = best_iter if best_iter is not None and best_iter >= 0 else len(valid_curve) - 1
+            best_iter_for_curve = min(best_iter_for_curve, len(valid_curve) - 1)
+            print(f"Best validation RMSE (raw space): {valid_curve[best_iter_for_curve]:.4f}")
+        if valid_metric_objective is not None:
+            print(f"Reference: native CatBoost log RMSE (objective space): {valid_metric_objective:.4f}")
+        print(f"Final validation RMSE ({report_space} space): {final_metric:.4f}")
 
     training_seconds = time.time() - train_start_time
 
@@ -353,9 +365,9 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     print(importance.head(5).to_string(index=False))
 
     plot_training_progress(
-        train_rmse=train_rmse_curve,
-        valid_rmse=valid_rmse_curve,
-        metric_name='RMSE',
+        train_rmse=train_curve,
+        valid_rmse=valid_curve,
+        metric_name=metric_key,
         metric_space=report_space,
         target_name=target_name,
         scale_tag=scale_tag,
@@ -366,8 +378,9 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     summary = {
         'target_name': target_name,
         'best_iteration': best_iter,
-        'best_validation_rmse_objective': valid_rmse_objective,
-        'final_validation_rmse': final_rmse,
+        'best_validation_rmse_objective': valid_metric_objective,
+        'final_validation_rmse': final_metric,
+        'final_metric': final_metric,
         'train_size': len(X_train),
         'valid_size': len(X_valid),
         'train_time_range': train_time_range,
@@ -457,11 +470,6 @@ if __name__ == "__main__":
         run_summary_row = build_run_summary_row(
             run_timestamp=run_timestamp,
             scale_tag=scale_tag,
-            train_file=file_name,
-            test_file=TEST_FILE,
-            output_file=output_file,
-            report_space=rent_summary['report_space'],
-            use_log_target=USE_LOG_TARGET,
             split_mode=SPLIT_MODE,
             train_size=rent_summary['train_size'],
             valid_size=rent_summary['valid_size'],
@@ -469,22 +477,15 @@ if __name__ == "__main__":
             valid_time_range=rent_summary['valid_time_range'],
             rent_summary=rent_summary,
             return_summary=return_summary,
+            model_type='CB',
             shared_config={
                 'cb_loss_function': CB_PARAMS['loss_function'],
                 'cb_eval_metric': CB_PARAMS['eval_metric'],
                 'cb_learning_rate': CB_PARAMS['learning_rate'],
                 'cb_depth': CB_PARAMS['depth'],
                 'cb_l2_leaf_reg': CB_PARAMS['l2_leaf_reg'],
-                'cb_random_seed': CB_PARAMS['random_seed'],
-                'cb_task_type': CB_PARAMS['task_type'],
-                'cb_devices': CB_PARAMS['devices'],
-                'cb_od_type': CB_PARAMS['od_type'],
                 'cb_od_wait': CB_PARAMS['od_wait'],
                 'cb_iterations': CB_ITERATIONS,
-                'cb_log_eval_period': CB_LOG_EVAL_PERIOD,
-                'train_valid_test_size': TRAIN_VALID_TEST_SIZE,
-                'train_valid_random_state': TRAIN_VALID_RANDOM_STATE,
-                'categorical_features': '|'.join(CB_CATEGORICAL_FEATURES),
             },
         )
         append_summary_row(TRAINING_SUMMARY_CSV, run_summary_row)
