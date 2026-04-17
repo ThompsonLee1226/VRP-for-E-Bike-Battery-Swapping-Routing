@@ -335,6 +335,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     summary = {
         'target_name': target_name,
         'best_iteration': regressor.get_best_iteration(),
+        'best_test': regressor.get_best_score().get('validation', {}).get('Poisson'),
         'final_metric': final_poisson,
         'classifier_logloss': classifier_logloss,
         'regressor_poisson_pos': regressor_poisson_pos,

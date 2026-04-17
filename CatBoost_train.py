@@ -378,6 +378,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     summary = {
         'target_name': target_name,
         'best_iteration': best_iter,
+        'best_test': valid_metric_objective,
         'best_validation_rmse_objective': valid_metric_objective,
         'final_validation_rmse': final_metric,
         'final_metric': final_metric,

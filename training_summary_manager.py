@@ -51,6 +51,8 @@ def build_run_summary_row(
         'valid_time_range': valid_time_range,
         'rent_best_iteration': rent_summary.get('best_iteration'),
         'return_best_iteration': return_summary.get('best_iteration'),
+        'rent_best_test': rent_summary.get('best_test'),
+        'return_best_test': return_summary.get('best_test'),
         'rent_final_metric': rent_summary.get('final_metric', rent_summary.get('final_validation_rmse')),
         'return_final_metric': return_summary.get('final_metric', return_summary.get('final_validation_rmse')),
         'rent_classifier_logloss': rent_summary.get('classifier_logloss'),

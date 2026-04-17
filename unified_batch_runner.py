@@ -17,8 +17,13 @@ import argparse
 import copy
 import itertools
 import os
+import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 import CatBoost_train as cb_train
 import CB_Hurdle_train as hurdle_train
