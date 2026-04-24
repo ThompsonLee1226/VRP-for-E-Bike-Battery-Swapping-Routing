@@ -51,14 +51,14 @@ CB_ALLOW_WRITING_FILES = cfg_value('CB_ALLOW_WRITING_FILES', True)
 # Shared base parameters
 CB_PARAMS = {
     'learning_rate': 0.03,
-    'depth': 9,                  
+    'depth': 10,                  
     'l2_leaf_reg': 4.0,          
     'random_seed': TRAIN_VALID_RANDOM_STATE,
     'task_type': 'GPU',
     'devices': '0:1',
     'thread_count': -1,
     'od_type': 'Iter',           
-    'od_wait': 50                
+    'od_wait': 30                
 }
 
 # Classifier and regressor use different objective settings
@@ -353,8 +353,13 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
     print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set for zero-inflated prediction: {test_file}")
     test_df = pd.read_csv(test_file)
 
-    cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
+    cols_to_drop = ['region_code', 'Unnamed: 21']
     test_df = test_df.drop(columns=[c for c in cols_to_drop if c in test_df.columns], errors='ignore')
+
+    # Preserve time-related columns for output before fill/feature engineering.
+    time_cols = ['datetime', 'month', 'day_of_week', 'is_weekend', 'hour']
+    raw_time_cols = [c for c in time_cols if c in test_df.columns]
+    raw_time_df = test_df[raw_time_cols].copy() if raw_time_cols else None
     
     if 'h3' in test_df.columns: test_df['h3'] = test_df['h3'].astype(str)
     test_df = fill_missing_values(test_df)
@@ -363,6 +368,7 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
 
     X_test = test_df[feature_cols]
     result_df = pd.DataFrame(index=test_df.index)
+    id_col_used = None
 
     # === Rent Prediction ===
     rent_prob = models_dict['rent']['classifier'].predict_proba(X_test)[:, 1]
@@ -377,11 +383,23 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
     raw_return_pred = np.clip(return_prob * return_val, 0, None)
     result_df['return_pred'] = raw_return_pred
     # ----------------------------
-    # Preserve one key column and save output
+    # Preserve identifiers and time columns in output.
     for id_col in ['id', 'station_id', 'h3']:
         if id_col in test_df.columns:
             result_df.insert(0, id_col, test_df[id_col].values)
+            id_col_used = id_col
             break
+    if raw_time_df is not None:
+        for col in raw_time_cols:
+            result_df[col] = raw_time_df[col].values
+
+    ordered_cols = []
+    if id_col_used:
+        ordered_cols.append(id_col_used)
+    ordered_cols.extend(raw_time_cols)
+    ordered_cols.extend(['rent_pred', 'return_pred'])
+    existing_cols = [c for c in ordered_cols if c in result_df.columns]
+    result_df = result_df[existing_cols]
 
     result_df.to_csv(output_file, index=False)
     print(f"Test prediction complete. Saved to: {output_file}")

@@ -40,15 +40,15 @@ CB_CATEGORICAL_FEATURES = ['h3']  # CatBoost categorical feature list
 CB_PARAMS = {
     'loss_function': 'Poisson',  # Training objective
     'eval_metric': 'Poisson',  # Training monitoring metric
-    'learning_rate': 0.015,  # Learning rate
-    'depth': 8,  # Tree depth
+    'learning_rate': 0.03,  # Learning rate
+    'depth': 10,  # Tree depth
     'l2_leaf_reg': 4.0,  # L2 regularization
     'random_seed': TRAIN_VALID_RANDOM_STATE,  # Model random seed
     'task_type': 'GPU',  # Training device type
     'devices': '0:1',  # GPU device IDs
     'thread_count': -1,  # CPU threads, -1 means auto
     'od_type': 'Iter',  # Early-stopping strategy type
-    'od_wait': 20,  # Early-stopping wait rounds
+    'od_wait': 30,  # Early-stopping wait rounds
 }
 CB_ITERATIONS = 2000  # Max training iterations
 CB_LOG_EVAL_PERIOD = 5  # Log interval in rounds
@@ -56,14 +56,14 @@ CB_LOG_EVAL_PERIOD = 5  # Log interval in rounds
 # Batch sweep settings
 AUTO_BATCH_RUN_PREFIX = 'auto_cb'
 AUTO_BATCH_TRAIN_SCALE = None  # None = full-data training; set an int for quick sweeps
-AUTO_BATCH_MAX_RUNS = 0  # 0 = run all parameter combinations
+AUTO_BATCH_MAX_RUNS = 1  # 0 = run all parameter combinations
 
 AUTO_BATCH_MODEL_TYPE = 'CB'  # Choose Model Type: CB | CB_Hurdle
 
 AUTO_BATCH_PARAM_GRID = {
-    'learning_rate': [0.015, 0.02, 0.03, 0.05],
-    'depth': [8, 9, 10],
-    'l2_leaf_reg': [3.0, 4.0, 5.0],
-    'od_wait': [15, 30],
+    'learning_rate': [0.03],
+    'depth': [10],
+    'l2_leaf_reg': [4.0],
+    'od_wait': [30],
     'iterations': [3000],
 }
