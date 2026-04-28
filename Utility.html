@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>换电策略 Utility 3D 可视化系统</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --bg-color: #ecf0f1;
+            --panel-bg: #ffffff;
+            --text-main: #333333;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+        /* 左侧控制面板 */
+        #control-panel {
+            width: 380px;
+            background-color: var(--panel-bg);
+            padding: 20px 30px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            z-index: 10;
+        }
+        /* 右侧可视化区域 */
+        #visualization-panel {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+        #plot-container {
+            flex-grow: 1;
+            background-color: var(--panel-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            padding: 10px;
+        }
+        h1, h2, h3 { color: var(--primary-color); margin: 0 0 10px 0; }
+        h1 { font-size: 1.4rem; border-bottom: 2px solid var(--accent-color); padding-bottom: 10px; }
+        h2 { font-size: 1.1rem; margin-top: 10px; }
+        
+        /* 控制组件样式 */
+        .control-group {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .slider-container { margin-bottom: 15px; }
+        .slider-container:last-child { margin-bottom: 0; }
+        label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+        
+        /* 只读数据展示样式 */
+        .data-display {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .data-card {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #1565c0;
+            border: 1px solid #bbdefb;
+        }
+        .data-card strong {
+            display: block;
+            font-size: 1.1rem;
+            margin-top: 5px;
+            color: #0d47a1;
+        }
+        
+        /* 使用说明 */
+        .instructions {
+            font-size: 0.85rem;
+            color: #666;
+            line-height: 1.5;
+            background: #fff3e0;
+            padding: 12px;
+            border-left: 4px solid #ff9800;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="control-panel">
+        <h1>换电策略参数控制台</h1>
+        
+        <div class="instructions">
+            <b>操作指南：</b><br>
+            1. 拖动 <b>时间节点 (Hour)</b>，系统将自动加载该周期对应的初始车辆状态。<br>
+            2. 调节 <b>调度与决策参数</b>，右侧的三维曲面图将实时重绘，展示借车率与还车率变化对 Utility 的影响。<br>
+            3. 在图表区支持鼠标左键旋转、右键平移、滚轮缩放。
+        </div>
+
+        <div class="control-group">
+            <h2>外部环境 (按小时自动匹配)</h2>
+            <div class="slider-container">
+                <label for="hour-slider"><span>时间节点 (Hour)</span> <span id="hour-val">0</span></label>
+                <input type="range" id="hour-slider" min="0" max="23" step="1" value="0">
+            </div>
+            
+            <div class="data-display">
+                <div class="data-card">亏电车<br><strong id="n-low-val">0.00</strong></div>
+                <div class="data-card">待亏电<br><strong id="n-soon-val">0.00</strong></div>
+                <div class="data-card">满电车<br><strong id="n-normal-val">0.00</strong></div>
+            </div>
+            <div style="font-size: 0.8rem; color: #888; text-align: right; margin-top: 5px;">*历史均值: 借车率 <span id="hist-rent">0.00</span> | 还车率 <span id="hist-return">0.00</span></div>
+        </div>
+
+        <div class="control-group">
+            <h2>决策与周期参数</h2>
+            <div class="slider-container">
+                <label for="y-slider"><span>换电数量 (y)</span> <span id="y-val">2.0</span></label>
+                <input type="range" id="y-slider" min="0" max="10" step="0.5" value="2">
+            </div>
+            <div class="slider-container">
+                <label for="T-slider"><span>总决策周期 (T)</span> <span id="T-val">1.0</span></label>
+                <input type="range" id="T-slider" min="0.5" max="5.0" step="0.5" value="1.0">
+            </div>
+            <div class="slider-container">
+                <label for="u-slider"><span>调度车到达时刻 (u)</span> <span id="u-val">0.0</span></label>
+                <input type="range" id="u-slider" min="0.0" max="1.0" step="0.1" value="0.0">
+            </div>
+        </div>
+    </div>
+
+    <div id="visualization-panel">
+        <div id="plot-container"></div>
+    </div>
+
+    <script>
+        // 1. 注入你提供的 CSV 数据 
+        const hourlyData = [
+            {hour:0, rent:0.638, ret:0.680, low:0.027, soon:0.540, normal:4.076},
+            {hour:1, rent:0.387, ret:0.412, low:0.020, soon:0.534, normal:4.093},
+            {hour:2, rent:0.297, ret:0.308, low:0.015, soon:0.455, normal:4.177},
+            {hour:3, rent:0.203, ret:0.212, low:0.012, soon:0.406, normal:4.227},
+            {hour:4, rent:0.148, ret:0.155, low:0.011, soon:0.385, normal:4.250},
+            {hour:5, rent:0.200, ret:0.179, low:0.011, soon:0.359, normal:4.277},
+            {hour:6, rent:0.746, ret:0.614, low:0.012, soon:0.381, normal:4.258},
+            {hour:7, rent:2.864, ret:2.481, low:0.012, soon:0.386, normal:4.248},
+            {hour:8, rent:3.375, ret:3.490, low:0.017, soon:0.417, normal:4.168},
+            {hour:9, rent:2.361, ret:2.460, low:0.019, soon:0.443, normal:4.134},
+            {hour:10, rent:2.057, ret:2.044, low:0.017, soon:0.424, normal:4.179},
+            {hour:11, rent:2.471, ret:2.328, low:0.013, soon:0.404, normal:4.229},
+            {hour:12, rent:2.983, ret:2.976, low:0.010, soon:0.374, normal:4.269},
+            {hour:13, rent:3.146, ret:3.078, low:0.011, soon:0.374, normal:4.283},
+            {hour:14, rent:3.059, ret:3.098, low:0.012, soon:0.401, normal:4.239},
+            {hour:15, rent:3.060, ret:2.991, low:0.013, soon:0.366, normal:4.279},
+            {hour:16, rent:3.477, ret:3.305, low:0.017, soon:0.405, normal:4.237},
+            {hour:17, rent:5.244, ret:4.903, low:0.021, soon:0.450, normal:4.198},
+            {hour:18, rent:5.066, ret:5.380, low:0.026, soon:0.483, normal:4.159},
+            {hour:19, rent:3.688, ret:3.803, low:0.037, soon:0.572, normal:4.056},
+            {hour:20, rent:3.173, ret:3.291, low:0.043, soon:0.599, normal:4.011},
+            {hour:21, rent:2.362, ret:2.513, low:0.045, soon:0.659, normal:3.940},
+            {hour:22, rent:1.565, ret:1.695, low:0.044, soon:0.680, normal:3.911},
+            {hour:23, rent:0.914, ret:0.984, low:0.039, soon:0.620, normal:3.980}
+        ];
+
+        // 2. 将你的 Python Utility 函数移植为 JavaScript 等效函数
+        function calcUtility(lam, mu, u, y, n_low, n_soon, n_normal, T) {
+            // 因子 1: instant-jump
+            let delta_B = Math.min(y, n_low) * 0.8 + Math.min(n_soon, Math.max(0, y - n_low)) * 0.5;
+
+            // 因子 2: conversion-rate
+            let N_u = n_soon + n_normal + Math.min(n_low, y) + (mu - lam) * u;
+            let N_T = n_soon + n_normal + Math.min(n_low, y) + (mu - lam) * T;
+            
+            N_u = Math.max(N_u, 1e-6);
+            N_T = Math.max(N_T, 1e-6);
+
+            let W = 0.0;
+            if (Math.abs(mu - lam) <= 1e-5) {
+                W = 1.0 - Math.exp(- (lam / N_u) * (T - u));
+            } else {
+                let exponent = lam / (mu - lam);
+                let ratio = Math.max(N_u / N_T, 1e-6);
+                W = 1.0 - Math.pow(ratio, exponent);
+            }
+            W = Math.max(0.0, Math.min(W, 1.0)); // 裁剪至 [0, 1]
+
+            // 因子 3: stock-out-risk
+            let N_serv = Math.max(0, n_soon + n_normal - lam * u);
+            let expected_demand = lam * (T - u);
+
+            let R = 0.0;
+            if (expected_demand > 1e-6) {
+                R = Math.max(0, (expected_demand - N_serv) / expected_demand);
+            }
+            R = Math.max(0.0, Math.min(R, 1.0)); // 裁剪至 [0, 1]
+
+            return delta_B * W * R;
+        }
+
+        // 3. UI 交互与图表渲染逻辑
+        const domElements = {
+            hour: document.getElementById('hour-slider'),
+            y: document.getElementById('y-slider'),
+            T: document.getElementById('T-slider'),
+            u: document.getElementById('u-slider'),
+            
+            hourVal: document.getElementById('hour-val'),
+            yVal: document.getElementById('y-val'),
+            TVal: document.getElementById('T-val'),
+            uVal: document.getElementById('u-val'),
+            
+            nLow: document.getElementById('n-low-val'),
+            nSoon: document.getElementById('n-soon-val'),
+            nNormal: document.getElementById('n-normal-val'),
+            histRent: document.getElementById('hist-rent'),
+            histReturn: document.getElementById('hist-return')
+        };
+
+        // 监听 T 值变化，动态限制 u 的最大值 (因为 u 不能大于 T)
+        domElements.T.addEventListener('input', (e) => {
+            const currentT = parseFloat(e.target.value);
+            domElements.u.max = currentT;
+            if (parseFloat(domElements.u.value) > currentT) {
+                domElements.u.value = currentT;
+            }
+            updateVisualization();
+        });
+
+        // 统一绑定其他滑块事件
+        ['hour', 'y', 'u'].forEach(key => {
+            domElements[key].addEventListener('input', updateVisualization);
+        });
+
+        function updateVisualization() {
+            // 获取当前控制台参数
+            const hour = parseInt(domElements.hour.value);
+            const y = parseFloat(domElements.y.value);
+            const T = parseFloat(domElements.T.value);
+            const u = parseFloat(domElements.u.value);
+            
+            // 获取对应小时的 CSV 数据 
+            const data = hourlyData[hour];
+            const n_low = data.low;
+            const n_soon = data.soon;
+            const n_normal = data.normal;
+
+            // 更新左侧数值显示
+            domElements.hourVal.textContent = hour + ":00";
+            domElements.yVal.textContent = y.toFixed(1);
+            domElements.TVal.textContent = T.toFixed(1);
+            domElements.uVal.textContent = u.toFixed(1);
+            
+            domElements.nLow.textContent = n_low.toFixed(3);
+            domElements.nSoon.textContent = n_soon.toFixed(3);
+            domElements.nNormal.textContent = n_normal.toFixed(3);
+            domElements.histRent.textContent = data.rent.toFixed(2);
+            domElements.histReturn.textContent = data.ret.toFixed(2);
+
+            // 生成网格数据用于 3D 绘图 (借车率和还车率从 0 到 6.0，覆盖 CSV 中的极值)
+            const rentRates = [];
+            const returnRates = [];
+            const zData = [];
+            
+            const steps = 40;
+            const maxRate = 6.0;
+
+            for (let i = 0; i <= steps; i++) {
+                let currentReturn = (i / steps) * maxRate;
+                returnRates.push(currentReturn);
+                let zRow = [];
+                for (let j = 0; j <= steps; j++) {
+                    let currentRent = (j / steps) * maxRate;
+                    if (i === 0) rentRates.push(currentRent);
+                    
+                    // 计算对应的 Utility
+                    let util = calcUtility(currentRent, currentReturn, u, y, n_low, n_soon, n_normal, T);
+                    zRow.push(util);
+                }
+                zData.push(zRow);
+            }
+
+            // 使用 Plotly 渲染
+            const plotData = [{
+                z: zData,
+                x: rentRates,
+                y: returnRates,
+                type: 'surface',
+                colorscale: 'Viridis',
+                colorbar: { title: 'Utility', thickness: 20 }
+            }];
+
+            const layout = {
+                title: 'Utility Function Landscape',
+                autosize: true,
+                margin: { l: 0, r: 0, b: 0, t: 50 },
+                scene: {
+                    xaxis: { title: 'Rent Rate (λ)', titlefont: { color: '#e74c3c' } },
+                    yaxis: { title: 'Return Rate (μ)', titlefont: { color: '#2ecc71' } },
+                    zaxis: { title: 'Utility (U)' },
+                    camera: { eye: { x: -1.5, y: -1.5, z: 1.2 } }
+                },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            };
+
+            Plotly.react('plot-container', plotData, layout, {responsive: true});
+        }
+
+        // 初始化加载
+        updateVisualization();
+    </script>
+</body>
+</html>

@@ -47,7 +47,10 @@ def utility(rent_rate, return_rate, u, y, n_low, n_soon, n_normal, T=1.0):
         W[mask_neq] = 1.0 - np.power(ratio, exponent)
 
     if np.any(mask_eq):
-        W[mask_eq] = 1.0 - np.exp(- (lam[mask_eq] / N_u[mask_eq]) * (T - u[mask_eq]))
+        if u.ndim == 0:
+            W[mask_eq] = 1.0 - np.exp(- (lam[mask_eq] / N_u[mask_eq]) * (T - u))
+        else:
+            W[mask_eq] = 1.0 - np.exp(- (lam[mask_eq] / N_u[mask_eq]) * (T - u[mask_eq]))
 
     W = np.clip(W, 0.0, 1.0)
 
