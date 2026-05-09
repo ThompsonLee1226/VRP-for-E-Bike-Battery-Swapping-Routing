@@ -122,6 +122,14 @@
         <div class="control-group">
             <h2>外部环境 (按小时自动匹配)</h2>
             <div class="slider-container">
+                <label for="stat-select"><span>统计方式</span> <span id="stat-val">mean</span></label>
+                <select id="stat-select">
+                    <option value="mean" selected>mean</option>
+                    <option value="median">median</option>
+                    <option value="max">max</option>
+                </select>
+            </div>
+            <div class="slider-container">
                 <label for="hour-slider"><span>时间节点 (Hour)</span> <span id="hour-val">0</span></label>
                 <input type="range" id="hour-slider" min="0" max="23" step="1" value="0">
             </div>
@@ -156,33 +164,91 @@
     </div>
 
     <script>
-        // 1. 注入你提供的 CSV 数据 
         const hourlyData = [
-            {hour:0, rent:0.638, ret:0.680, low:0.027, soon:0.540, normal:4.076},
-            {hour:1, rent:0.387, ret:0.412, low:0.020, soon:0.534, normal:4.093},
-            {hour:2, rent:0.297, ret:0.308, low:0.015, soon:0.455, normal:4.177},
-            {hour:3, rent:0.203, ret:0.212, low:0.012, soon:0.406, normal:4.227},
-            {hour:4, rent:0.148, ret:0.155, low:0.011, soon:0.385, normal:4.250},
-            {hour:5, rent:0.200, ret:0.179, low:0.011, soon:0.359, normal:4.277},
-            {hour:6, rent:0.746, ret:0.614, low:0.012, soon:0.381, normal:4.258},
-            {hour:7, rent:2.864, ret:2.481, low:0.012, soon:0.386, normal:4.248},
-            {hour:8, rent:3.375, ret:3.490, low:0.017, soon:0.417, normal:4.168},
-            {hour:9, rent:2.361, ret:2.460, low:0.019, soon:0.443, normal:4.134},
-            {hour:10, rent:2.057, ret:2.044, low:0.017, soon:0.424, normal:4.179},
-            {hour:11, rent:2.471, ret:2.328, low:0.013, soon:0.404, normal:4.229},
-            {hour:12, rent:2.983, ret:2.976, low:0.010, soon:0.374, normal:4.269},
-            {hour:13, rent:3.146, ret:3.078, low:0.011, soon:0.374, normal:4.283},
-            {hour:14, rent:3.059, ret:3.098, low:0.012, soon:0.401, normal:4.239},
-            {hour:15, rent:3.060, ret:2.991, low:0.013, soon:0.366, normal:4.279},
-            {hour:16, rent:3.477, ret:3.305, low:0.017, soon:0.405, normal:4.237},
-            {hour:17, rent:5.244, ret:4.903, low:0.021, soon:0.450, normal:4.198},
-            {hour:18, rent:5.066, ret:5.380, low:0.026, soon:0.483, normal:4.159},
-            {hour:19, rent:3.688, ret:3.803, low:0.037, soon:0.572, normal:4.056},
-            {hour:20, rent:3.173, ret:3.291, low:0.043, soon:0.599, normal:4.011},
-            {hour:21, rent:2.362, ret:2.513, low:0.045, soon:0.659, normal:3.940},
-            {hour:22, rent:1.565, ret:1.695, low:0.044, soon:0.680, normal:3.911},
-            {hour:23, rent:0.914, ret:0.984, low:0.039, soon:0.620, normal:3.980}
+            {hour:0, rent:0.6379979743416611, ret:0.6798615800135044, low:0.026839972991222146, soon:0.5400911546252533, normal:4.075624577987846},
+            {hour:1, rent:0.38690074274139097, ret:0.41171505739365294, low:0.020425388251181634, soon:0.5336765698852127, normal:4.093349088453747},
+            {hour:2, rent:0.2968433490884537, ret:0.30815327481431465, low:0.014939230249831195, soon:0.4550135043889264, normal:4.176907494935854},
+            {hour:3, rent:0.20298784604996623, ret:0.21218771100607697, low:0.011731937879810939, soon:0.4062288993923025, normal:4.2266205266711685},
+            {hour:4, rent:0.14795746117488184, ret:0.1551316677920324, low:0.010887913571910872, soon:0.38453747467927074, normal:4.25016880486158},
+            {hour:5, rent:0.200202565833896, ret:0.17927076299797434, low:0.011309925725860905, soon:0.3593855503038488, normal:4.277261985145172},
+            {hour:6, rent:0.7458642808912896, ret:0.6136056718433491, low:0.012322754895340985, soon:0.3810769750168805, normal:4.2575962187711},
+            {hour:7, rent:2.863858879135719, ret:2.4805030384875084, low:0.012153950033760972, soon:0.3861411208642809, normal:4.2483119513842},
+            {hour:8, rent:3.37457798784605, ret:3.4897029034436193, low:0.016711681296421338, soon:0.4172856178257934, normal:4.168129642133693},
+            {hour:9, rent:2.3609047940580687, ret:2.4599088453747466, low:0.01899054692775152, soon:0.4425219446320054, normal:4.1340310600945305},
+            {hour:10, rent:2.0570560432140446, ret:2.0437204591492235, low:0.016542876434841324, soon:0.4239534098582039, normal:4.178511141120865},
+            {hour:11, rent:2.4709640892914915, ret:2.3277256551277903, low:0.013021675833063734, soon:0.4042381106438046, normal:4.228728566806859},
+            {hour:12, rent:2.9832786622929834, ret:2.9755980478438273, low:0.010160812865029203, soon:0.3742699415953276, normal:4.268981518521482},
+            {hour:13, rent:3.1457716617329385, ret:3.077686214897192, low:0.010560844867589406, soon:0.37378990319225536, normal:4.282742619409553},
+            {hour:14, rent:3.0587246979758382, ret:3.097527802224178, low:0.01168093447475798, soon:0.40147211776942154, normal:4.238899111928954},
+            {hour:15, rent:3.0600048003840308, ret:2.9914393151452114, low:0.012881030482438596, soon:0.3656292503400272, normal:4.279062324985999},
+            {hour:16, rent:3.476598127850228, ret:3.30538443075446, low:0.017201376110088807, soon:0.4053124249939995, normal:4.2367389391151296},
+            {hour:17, rent:5.244499559964797, ret:4.903272261780942, low:0.021201696135690857, soon:0.45035602848227857, normal:4.197935834866789},
+            {hour:18, rent:5.065765261220898, ret:5.380350428034243, low:0.025682054564365148, soon:0.4826786142891431, normal:4.15913273061845},
+            {hour:19, rent:3.6883750700056006, ret:3.802944235538843, low:0.03728298263861109, soon:0.5720457636610928, normal:4.056324505960477},
+            {hour:20, rent:3.1730538443075447, ret:3.290743259460757, low:0.04304344347547804, soon:0.5991679334346748, normal:4.011200896071686},
+            {hour:21, rent:2.3621889751180096, ret:2.5130010400832066, low:0.04528362268981519, soon:0.6590127210176814, normal:3.939915193215457},
+            {hour:22, rent:1.5654052324185934, ret:1.6949355948475877, low:0.04448355868469477, soon:0.6802144171533723, normal:3.9108728698295865},
+            {hour:23, rent:0.9143131450516041, ret:0.9840787262981039, low:0.03920313625090007, soon:0.6199695975678055, normal:3.9797583806704537}
         ];
+        const hourlyDataMedian = [
+            {hour:0, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
+            {hour:1, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
+            {hour:2, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
+            {hour:3, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
+            {hour:4, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
+            {hour:5, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:6, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:7, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:8, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:9, rent:0.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:10, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:11, rent:1.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:12, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:13, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:14, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:15, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:16, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:17, rent:2.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:18, rent:2.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:19, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:20, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:21, rent:0.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:22, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
+            {hour:23, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0}
+        ];
+        const hourlyDataMax = [
+            {hour:0, rent:20, ret:17, low:1, soon:4, normal:33},
+            {hour:1, rent:9, ret:11, low:1, soon:7, normal:26},
+            {hour:2, rent:9, ret:8, low:2, soon:7, normal:23},
+            {hour:3, rent:7, ret:8, low:2, soon:6, normal:21},
+            {hour:4, rent:10, ret:5, low:1, soon:7, normal:20},
+            {hour:5, rent:8, ret:6, low:0, soon:4, normal:19},
+            {hour:6, rent:3, ret:48, low:1, soon:3, normal:6},
+            {hour:7, rent:33, ret:133, low:1, soon:7, normal:30},
+            {hour:8, rent:51, ret:132, low:1, soon:16, normal:84},
+            {hour:9, rent:39, ret:67, low:2, soon:8, normal:100},
+            {hour:10, rent:41, ret:62, low:3, soon:5, normal:73},
+            {hour:11, rent:57, ret:65, low:0, soon:9, normal:48},
+            {hour:12, rent:64, ret:79, low:2, soon:9, normal:71},
+            {hour:13, rent:67, ret:92, low:0, soon:9, normal:55},
+            {hour:14, rent:84, ret:79, low:1, soon:15, normal:81},
+            {hour:15, rent:101, ret:67, low:1, soon:14, normal:86},
+            {hour:16, rent:89, ret:80, low:1, soon:14, normal:52},
+            {hour:17, rent:100, ret:87, low:1, soon:8, normal:43},
+            {hour:18, rent:80, ret:119, low:1, soon:8, normal:33},
+            {hour:19, rent:88, ret:80, low:3, soon:9, normal:42},
+            {hour:20, rent:83, ret:70, low:6, soon:13, normal:38},
+            {hour:21, rent:36, ret:73, low:4, soon:21, normal:109},
+            {hour:22, rent:22, ret:61, low:1, soon:17, normal:138},
+            {hour:23, rent:17, ret:41, low:7, soon:20, normal:155}
+        ];
+
+        const hourlyDataSets = {
+            mean: hourlyData,
+            median: hourlyDataMedian,
+            max: hourlyDataMax
+        };
+
 
         // 2. 将你的 Python Utility 函数移植为 JavaScript 等效函数
         function calcUtility(lam, mu, u, y, n_low, n_soon, n_normal, T) {
@@ -221,11 +287,13 @@
 
         // 3. UI 交互与图表渲染逻辑
         const domElements = {
+            stat: document.getElementById('stat-select'),
             hour: document.getElementById('hour-slider'),
             y: document.getElementById('y-slider'),
             T: document.getElementById('T-slider'),
             u: document.getElementById('u-slider'),
             
+            statVal: document.getElementById('stat-val'),
             hourVal: document.getElementById('hour-val'),
             yVal: document.getElementById('y-val'),
             TVal: document.getElementById('T-val'),
@@ -249,26 +317,45 @@
         });
 
         // 统一绑定其他滑块事件
-        ['hour', 'y', 'u'].forEach(key => {
+        ['stat', 'hour', 'y', 'u'].forEach(key => {
             domElements[key].addEventListener('input', updateVisualization);
         });
 
         function updateVisualization() {
+            const stat = domElements.stat.value;
             // 获取当前控制台参数
             const hour = parseInt(domElements.hour.value);
             const y = parseFloat(domElements.y.value);
             const T = parseFloat(domElements.T.value);
             const u = parseFloat(domElements.u.value);
             
+            const dataset = hourlyDataSets[stat] || hourlyData;
+            const hourlyDataByHour = dataset.reduce((acc, item) => {
+                acc[item.hour] = item;
+                return acc;
+            }, {});
+
             // 获取对应小时的 CSV 数据 
-            const data = hourlyData[hour];
+            const fallback = hourlyData[0];
+            const data = hourlyDataByHour[hour] || fallback;
+            if (!hourlyDataByHour[hour]) {
+                console.warn(`Missing hour=${hour} in ${stat} dataset. Fallback to mean hour=0.`);
+            }
             const n_low = data.low;
             const n_soon = data.soon;
             const n_normal = data.normal;
 
+            const yCap = Math.max(n_low + n_soon, 0);
+            domElements.y.max = yCap.toFixed(3);
+            if (parseFloat(domElements.y.value) > yCap) {
+                domElements.y.value = yCap;
+            }
+            const yAdjusted = parseFloat(domElements.y.value);
+
             // 更新左侧数值显示
+            domElements.statVal.textContent = stat;
             domElements.hourVal.textContent = hour + ":00";
-            domElements.yVal.textContent = y.toFixed(1);
+            domElements.yVal.textContent = yAdjusted.toFixed(3);
             domElements.TVal.textContent = T.toFixed(1);
             domElements.uVal.textContent = u.toFixed(1);
             
@@ -284,7 +371,7 @@
             const zData = [];
             
             const steps = 40;
-            const maxRate = 6.0;
+            const maxRate = 20.0;
 
             for (let i = 0; i <= steps; i++) {
                 let currentReturn = (i / steps) * maxRate;
@@ -295,7 +382,7 @@
                     if (i === 0) rentRates.push(currentRent);
                     
                     // 计算对应的 Utility
-                    let util = calcUtility(currentRent, currentReturn, u, y, n_low, n_soon, n_normal, T);
+                    let util = calcUtility(currentRent, currentReturn, u, yAdjusted, n_low, n_soon, n_normal, T);
                     zRow.push(util);
                 }
                 zData.push(zRow);

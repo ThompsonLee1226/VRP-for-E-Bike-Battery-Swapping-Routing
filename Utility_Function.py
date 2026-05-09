@@ -55,7 +55,7 @@ def utility(rent_rate, return_rate, u, y, n_low, n_soon, n_normal, T=1.0):
     W = np.clip(W, 0.0, 1.0)
 
     # --- 因子 3: stock-out-risk (R) ---
-    N_serv = np.maximum(0, n_soon + n_normal - lam * u)
+    N_serv = np.maximum(0, n_soon + n_normal - lam * u + mu * u)
     expected_demand = lam * (T - u)
 
     R = np.zeros_like(lam)
