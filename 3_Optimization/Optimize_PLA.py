@@ -33,19 +33,19 @@ def optimize_evrp_with_pla(
     m = gp.Model("EVRP_PLA_GeoClipped")
 
     # ==========================================================================
-    # 求解器参数 (Tier-2 优化 — 针对根节点慢、对偶界停滞的调参)
+    # 求解器参数 (Tier-3 纠正 — 禁 Barrier 空转 + 回调 Moderate 裁切)
     # ==========================================================================
     m.setParam('MIPGap', 0.05)
     m.setParam('TimeLimit', 1800)
-    # 移除 Barrier + 关闭 Crossover，改由 Gurobi 自动选择
-    m.setParam('Method', -1)             # 自动选择算法
-    m.setParam('Crossover', -1)          # 自动 (默认会在 Barrier 后执行交叉以提供顶点解)
-    m.setParam('MIPFocus', 3)            # 专注提升下界 (primal bound 已较好, dual bound 停滞是瓶颈)
-    m.setParam('Heuristics', 0.8)        # 提高启发式搜索强度 (每次节点处理缓慢, 花精力找好解 ROI 更高)
-    m.setParam('Cuts', 3)                # 更激进割平面生成 (收紧根节点 LP)
-    m.setParam('Symmetry', 2)            # 主动对称破缺 (PLA 变量 w[j,y] 在不同 y 上有对称性)
-    m.setParam('NoRelHeurTime', 300)     # 前 300s 专注启发式找可行解, 不开启分支
-    m.setParam('Threads', 4)             # 减少线程数 (8 线程在 B&B 中有同步开销, 4 核更稳定)
+    # 关键修复: 指定 Primal Simplex, 禁掉 Barrier 并发 (Barrier 在 340s 内一步都走不出来)
+    m.setParam('Method', 0)              # Primal Simplex (避免 Barrier 空转 340s)
+    m.setParam('Crossover', -1)          # 自动
+    m.setParam('MIPFocus', 1)            # 优先找可行解 (dual bound 结构性差, 强行提下界无效)
+    m.setParam('Heuristics', 0.15)       # 回归默认 — 割生成过载后, 少花精力盲飞式启发
+    m.setParam('Cuts', 1)                # Moderate 割生成 (Cuts=3 生了 800+ 个割却把 bound 从 2.53→2.61)
+    m.setParam('Symmetry', 2)            # 主动对称破缺 (保留, 这对 SOS2 仍有帮助)
+    m.setParam('NoRelHeurTime', 60)      # 短启发式阶段 (无 LP 时盲飞 ROI 低)
+    m.setParam('Threads', 8)             # 恢复全核心 (Simplex 时间从 14.1s→7.3s 在 8 核下)
     m.setParam('PreDual', -1)            # 自动决定是否对偶预处理
 
     # ==========================================================================
