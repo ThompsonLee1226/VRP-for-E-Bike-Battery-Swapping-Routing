@@ -102,7 +102,7 @@ def prepare_optimize_inputs(
     return grids, grid_params, snapshot_df
 
 
-def generate_offline_utility_matrix(grids, C_max, T_total, P_intervals, grid_params, calc_utility_func, progress_bar=None):
+def generate_offline_utility_matrix(grids, C_max, T_total, P_intervals, grid_params, calc_utility_func, progress_bar=None, y_levels=None):
     """
     预计算静态效用矩阵 Omega，实施连续时间向离散断点转换。
 
@@ -113,19 +113,21 @@ def generate_offline_utility_matrix(grids, C_max, T_total, P_intervals, grid_par
     - P_intervals: 分段逼近的间隔数
     - grid_params: 字典，包含预测得到的各点初始状态 (n_low, n_soon, n_normal) 及流率 (rho, lam)
     - calc_utility_func: 先前实现的函数 calculate_operational_utility
+    - y_levels: 可选，离散换电量列表。若为 None 则使用 range(1, C_max+1)
 
     返回:
     - Omega: 嵌套字典，结构为 Omega[j][y][s]
     - tau_list: 物理时间断点列表
     """
     tau_list = np.linspace(0, T_total, P_intervals + 1).tolist()
+    _y_levels = sorted(y_levels) if y_levels is not None else range(1, C_max + 1)
     Omega = {}
     done_steps = 0
     for j in grids:
         Omega[j] = {}
         params = grid_params[j]
 
-        for y in range(1, C_max + 1):
+        for y in _y_levels:
             Omega[j][y] = {}
             for s, tau_s in enumerate(tau_list):
                 utility_val = calc_utility_func(

@@ -13,6 +13,7 @@ def optimize_evrp_with_pla_delta(
     BigM=1000,
     progress_tracker=None,
     max_travel_time=0.33,
+    y_levels=None,
 ):
     """
     Build and solve EVRP with PLA using the Incremental (Delta) Model.
@@ -46,11 +47,12 @@ def optimize_evrp_with_pla_delta(
     m.setParam('Crossover', -1)          # auto
     m.setParam('MIPFocus', 1)            # find feasible solutions
     m.setParam('Heuristics', 0.15)       # default — delta LP is already tight
-    m.setParam('Cuts', 1)                # moderate — tighter LP needs fewer cuts
+    m.setParam('Cuts', 2)                # aggressive cut generation
     m.setParam('Symmetry', 2)            # aggressive symmetry breaking
-    m.setParam('NoRelHeurTime', 60)      # short heuristic phase
+    m.setParam('NoRelHeurTime', 120)     # doubled heuristic phase for better warm solutions
     m.setParam('Threads', 8)             # full cores for simplex speed
     m.setParam('PreDual', -1)            # auto
+    m.setParam('PrePasses', 5)           # extra presolve passes to simplify problem
 
     # ==========================================================================
     # Adaptive Big-M (same logic as SOS2 model)
@@ -77,7 +79,7 @@ def optimize_evrp_with_pla_delta(
     # ==========================================================================
     depot = 0
     nodes = [depot] + grids
-    Y_domain = list(range(1, C_max + 1))           # battery swap quantities: 1..C_max
+    Y_domain = list(range(1, C_max + 1)) if y_levels is None else sorted(y_levels)       # battery swap quantities
     P = len(tau_list) - 1                           # number of intervals
     K_domain = list(range(1, P + 1))                # delta indices: 1..P
 
@@ -335,7 +337,7 @@ def optimize_evrp_with_pla_delta(
             best_y = max(
                 ((yy, Omega[best_j][yy][s_idx]) for yy in Y_domain
                  if cum_swaps + yy <= C_max),
-                key=lambda p: p[1], default=(1, 0),
+                key=lambda p: p[1], default=(min(Y_domain), 0),
             )[0]
 
             svc = swap_time_c * best_y
@@ -413,13 +415,22 @@ def optimize_evrp_with_pla_delta(
             # -----------------------------------------------------------------
             # delta[j, y_val, k] — staircase fill based on arrival time u_j
             # -----------------------------------------------------------------
-            # For the selected y_val:
-            #   delta_k = 1        if tau_list[k] <= u_j   (full interval)
-            #   delta_k = fraction  if tau_list[k-1] < u_j < tau_list[k]
-            #   delta_k = 0        if tau_list[k-1] >= u_j
-            # For all other y_val:  delta_k = 0
+            # delta is BINARY; the TimeSync equality requires:
+            #   u[j] = Σ_{k} Δτ_k · delta[j, yj, k]
+            # Since binary delta under monotonicity only allows u_j at exact
+            # breakpoints, we round the arrival time to the nearest τ and
+            # set delta as an integer staircase.
             # -----------------------------------------------------------------
             uj = arrival[j]
+            # Find nearest breakpoint index
+            uj_s_idx = min(range(len(tau_list)),
+                           key=lambda si: abs(tau_list[si] - uj))
+            uj_rounded = tau_list[uj_s_idx]
+            # Override u[j].Start to the rounded breakpoint for TimeSync feasibility
+            var_u = _u_by_str.get(j_key)
+            if var_u is not None:
+                var_u.Start = uj_rounded
+
             for y_val in Y_domain:
                 for k_idx, k in enumerate(K_domain):
                     var = _delta_by_str.get((j_key, str(y_val), str(k)))
@@ -428,16 +439,8 @@ def optimize_evrp_with_pla_delta(
                     if y_val != yj:
                         var.Start = 0.0
                     else:
-                        # Check position of u_j relative to breakpoints
-                        if tau_list[k] <= uj + 1e-12:
-                            # Interval k is fully before arrival → δ_k = 1
-                            var.Start = 1.0
-                        elif tau_list[k-1] < uj - 1e-12:
-                            # Partial fill: u_j ∈ (τ_{k-1}, τ_k)
-                            frac = (uj - tau_list[k-1]) / Delta_tau_list[k_idx]
-                            var.Start = max(0.0, min(1.0, frac))
-                        else:
-                            var.Start = 0.0
+                        # Staircase: δ_k = 1 for k ≤ uj_s_idx, 0 otherwise
+                        var.Start = 1.0 if k <= uj_s_idx else 0.0
 
         warm_log_parts.append(f"v={v_set} y={y_set}")
         if progress_tracker is None:

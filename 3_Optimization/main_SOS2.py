@@ -29,6 +29,7 @@ DEFAULT_P_INTERVALS = 5                               # PLA 时间分段数 (Tie
 DEFAULT_SWAP_TIME_C = 0.02                            # 单块电池换电服务时间 (小时)
 DEFAULT_BIG_M = 1.5                                   # Big-M 常数 (现由求解器内部自适应收紧, 此值仅作后备)
 DEFAULT_MAX_TRAVEL_TIME = 0.2                         # 弧段裁剪阈值 (小时) — 收紧弧段
+DEFAULT_Y_LEVELS = list(range(1, 11))               # 离散换电量: 1~10 (原 1~20, 减半)
 
 
 # =========================================================================
@@ -163,6 +164,7 @@ def run_optimization_pipeline(
     C_max=DEFAULT_C_MAX,
     T_total=DEFAULT_T_TOTAL,
     P_intervals=DEFAULT_P_INTERVALS,
+    y_levels=None,
     swap_time_c=DEFAULT_SWAP_TIME_C,
     BigM=DEFAULT_BIG_M,
     max_travel_time=DEFAULT_MAX_TRAVEL_TIME,
@@ -261,6 +263,7 @@ def run_optimization_pipeline(
         P_intervals=P_intervals,
         grid_params=grid_params,
         calc_utility_func=calculate_operational_utility,
+        y_levels=y_levels,
     )
 
     # -----------------------------------------------------------------
@@ -328,6 +331,7 @@ def run_optimization_pipeline(
         BigM=BigM,
         progress_tracker=progress,
         max_travel_time=max_travel_time,
+        y_levels=y_levels,
     )
     t_elapsed = time.perf_counter() - t_start
 
@@ -553,6 +557,7 @@ if __name__ == "__main__":
         C_max=20,
         T_total=1.0,
         P_intervals=DEFAULT_P_INTERVALS,   # 5 (原 10) — 减半 SOS2 变量
+        y_levels=DEFAULT_Y_LEVELS,         # 1~10 (原 1~20) — 减半换电量选择
         swap_time_c=0.02,
         BigM=200.0,
         max_travel_time=DEFAULT_MAX_TRAVEL_TIME,  # 0.2h — 弧段裁剪阈值

@@ -13,6 +13,7 @@ def optimize_evrp_with_pla(
     BigM=1000,
     progress_tracker=None,
     max_travel_time=0.33,
+    y_levels=None,
 ):
     """
     构建并求解整合了双变量 PLA 的电动汽车路径规划问题 (EVRP)。
@@ -79,7 +80,7 @@ def optimize_evrp_with_pla(
     # ==========================================================================
     depot = 0
     nodes = [depot] + grids
-    Y_domain = list(range(1, C_max + 1))
+    Y_domain = list(range(1, C_max + 1)) if y_levels is None else sorted(y_levels)
     S_domain = list(range(len(tau_list)))
 
     # 构建可行弧段集合: 只保留旅行时间 ≤ max_travel_time 的弧
@@ -286,7 +287,7 @@ def optimize_evrp_with_pla(
             best_y = max(
                 ((yy, Omega[best_j][yy][s_idx]) for yy in Y_domain
                  if cum_swaps + yy <= C_max),
-                key=lambda p: p[1], default=(1, 0),
+                key=lambda p: p[1], default=(min(Y_domain), 0),
             )[0]
 
             svc = swap_time_c * best_y
