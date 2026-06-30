@@ -33,13 +33,43 @@ def optimize_evrp_with_pla(
     m = gp.Model("EVRP_PLA_GeoClipped")
 
     # ==========================================================================
-    # 求解器参数
+    # 求解器参数 (Tier-1 优化)
     # ==========================================================================
     m.setParam('MIPGap', 0.05)
     m.setParam('TimeLimit', 1800)
-    m.setParam('Method', 2)              # Barrier
-    m.setParam('Crossover', 0)           # 关闭交叉
-    m.setParam('Heuristics', 0.2)
+    # 移除 Barrier + 关闭 Crossover，改由 Gurobi 自动选择
+    m.setParam('Method', -1)             # 自动选择算法
+    m.setParam('Crossover', -1)          # 自动 (默认会在 Barrier 后执行交叉以提供顶点解)
+    m.setParam('MIPFocus', 1)            # 优先寻找可行解 (快速获得 primal bound 用于剪枝)
+    m.setParam('Heuristics', 0.5)        # 提高启发式搜索强度 (从 0.2 提升)
+    m.setParam('Cuts', 2)                # 激进割平面生成
+    m.setParam('PreDual', -1)            # 自动决定是否对偶预处理
+
+    # ==========================================================================
+    # 自适应 Big-M 计算 (Tier-1 优化)
+    # ==========================================================================
+    # 基于问题物理参数计算紧致 Big-M, 取代原先的硬编码 200 / 1000。
+    # 过于松弛的 Big-M 是根节点 LP 退化的首要原因。
+    _max_service = swap_time_c * C_max                        # 单节点最大服务耗时
+    _max_arrival_diff = T_total + _max_service + max_travel_time  # 任意两点最大时间差
+
+    # 保存用户原始传入值 (仅用于诊断日志)
+    _BigM_original = BigM
+
+    # 三类约束各自的最小有效 Big-M
+    BigM_mtz      = _max_arrival_diff + 0.1                   # MTZ 子环消除
+    BigM_sync     = T_total + 0.1                              # PLA 时间同步
+    BigM_deadline = _max_service + max_travel_time + 0.1       # 周期截止约束
+
+    # 若用户传入的 BigM 小于计算值则沿用 (尊重用户设置)
+    if BigM > _max_arrival_diff:
+        BigM = _max_arrival_diff + 0.1
+
+    if progress_tracker is None:
+        print(f"  [BigM 自适应] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
+              f"Deadline={BigM_deadline:.3f}  "
+              f"(原传入 {_BigM_original if _BigM_original <= 10 else '>1000'}, "
+              f"已收紧至 ≤{BigM:.3f})")
 
     # ==========================================================================
     # 0. 索引集合 & 弧段可行性预计算 (Geo-Fencing 边长裁剪)
@@ -151,16 +181,16 @@ def optimize_evrp_with_pla(
             )
             m.addSOS(GRB.SOS_TYPE2, [lam[j, y_val, s] for s in S_domain])
 
-        # 时间同步: 物理时间 u_j ≈ PLA 插值时间
+        # 时间同步: 物理时间 u_j ≈ PLA 插值时间 (使用紧致 BigM_sync)
         pla_time_expr = gp.quicksum(
             tau_list[s] * lam[j, y_val, s] for y_val in Y_domain for s in S_domain
         )
         m.addConstr(
-            u[j] - BigM * (1 - v[j]) <= pla_time_expr,
+            u[j] - BigM_sync * (1 - v[j]) <= pla_time_expr,
             name=f"Time_Sync_LB_{j}"
         )
         m.addConstr(
-            pla_time_expr <= u[j] + BigM * (1 - v[j]),
+            pla_time_expr <= u[j] + BigM_sync * (1 - v[j]),
             name=f"Time_Sync_UB_{j}"
         )
 
@@ -171,24 +201,204 @@ def optimize_evrp_with_pla(
     m.addConstr(y[depot] == 0, name="StartBatteryDepot")
 
     # MTZ — 仅遍历可行弧, 且 j 必须为 grid (depot 不出现在 j 侧)
+    # 使用紧致 BigM_mtz 替代原来的 BigM=200/1000
     for i in nodes:
         for j in feasible_out[i]:
             if j == depot:
                 continue  # MTZ 弧 j 必须是 grid, depot 的 MTZ 由 CycleDeadline 处理
             m.addConstr(
                 u[j] >= u[i] + (swap_time_c * y[i]) + travel_time[i][j]
-                       - BigM * (1 - x[i, j]),
+                       - BigM_mtz * (1 - x[i, j]),
                 name=f"MTZ_{i}_{j}"
             )
 
     # 周期截止 — 仅对存在 grid→depot 弧的 grid 生成
+    # 使用紧致 BigM_deadline 替代原来的 BigM
     for i in grids:
         if depot in feasible_out[i]:
             m.addConstr(
                 u[i] + (swap_time_c * y[i]) + travel_time[i][depot]
-                - BigM * (1 - x[i, depot]) <= T_total,
+                - BigM_deadline * (1 - x[i, depot]) <= T_total,
                 name=f"CycleDeadline_{i}"
             )
+
+    # ==========================================================================
+    # 5.5. 贪心 Warm-Start 启发式 (Tier-1 优化)
+    # ==========================================================================
+    # 最近邻贪心 + 效用/行程比排序, 构造一条初始可行路径。
+    # 作为 Gurobi MIP Start 注入, 快速获得紧致 primal bound 用于剪枝。
+
+    def _build_warm_start():
+        """构建贪心路径并直接设置变量 Start 属性。返回 (ok: bool, num_visited: int)"""
+        unvisited = set(grids)
+        route_seq = [depot]
+        cum_time = 0.0
+        cum_swaps = 0
+        arrival = {depot: 0.0}
+        swap_at = {depot: 0}
+
+        current = depot
+        while unvisited:
+            # 对每个候选节点评估效用/行程比
+            candidates = []
+            for j in unvisited:
+                if (current, j) not in feasible_arcs:
+                    continue
+                tt = travel_time[current][j]
+                proj_arr = cum_time + tt
+                if proj_arr >= T_total:
+                    continue
+                s_idx = min(range(len(tau_list)),
+                            key=lambda si: abs(tau_list[si] - proj_arr))
+                max_u = max(
+                    (Omega[j][yy][s_idx] for yy in Y_domain
+                     if cum_swaps + yy <= C_max),
+                    default=0.0,
+                )
+                if max_u > 0:
+                    candidates.append((max_u / max(tt, 0.001), j, proj_arr, tt))
+
+            if not candidates:
+                break
+            candidates.sort(reverse=True, key=lambda tup: tup[0])
+            _, best_j, proj_arr, tt = candidates[0]
+
+            # 决定换电量: 在当前到达时间下选效用最大的 y
+            s_idx = min(range(len(tau_list)),
+                        key=lambda si: abs(tau_list[si] - proj_arr))
+            best_y = max(
+                ((yy, Omega[best_j][yy][s_idx]) for yy in Y_domain
+                 if cum_swaps + yy <= C_max),
+                key=lambda p: p[1], default=(1, 0),
+            )[0]
+
+            svc = swap_time_c * best_y
+            dep_time = proj_arr + svc
+
+            # 可行性检查: 必须能返回 depot
+            if ((best_j, depot) not in feasible_arcs
+                    or dep_time + travel_time[best_j][depot] > T_total):
+                # 尝试递减换电量以留出返程时间
+                saved = False
+                for yy in sorted(Y_domain, reverse=True):
+                    if cum_swaps + yy > C_max:
+                        continue
+                    if (proj_arr + swap_time_c * yy
+                            + travel_time[best_j][depot] <= T_total):
+                        best_y = yy
+                        svc = swap_time_c * yy
+                        dep_time = proj_arr + svc
+                        saved = True
+                        break
+                if not saved:
+                    continue  # 此节点无法纳入, 跳过
+
+            route_seq.append(best_j)
+            arrival[best_j] = proj_arr
+            swap_at[best_j] = best_y
+            cum_swaps += best_y
+            cum_time = dep_time
+            unvisited.remove(best_j)
+            current = best_j
+
+        route_seq.append(depot)
+        if len(route_seq) <= 2:                     # 仅 depot → depot
+            return None, 0
+
+        # ---- 通过变量名直接设置 MIP Start (绕过 tupledict 类型匹配问题) ----
+        tau_arr = tau_list
+        warm_log_parts = []
+
+        # 路由变量 x — 使用 getVarByName 做字符串精确查找
+        x_set = 0
+        for idx in range(len(route_seq) - 1):
+            i, j = route_seq[idx], route_seq[idx + 1]
+            # Gurobi addVars 的命名规则: name[key] → 例如 x[0,grid_abc]
+            var = m.getVarByName(f"x[{i},{j}]")
+            if var is not None:
+                var.Start = 1
+                x_set += 1
+        warm_log_parts.append(f"x弧段={x_set}")
+
+        # 访问 / 时间 / 换电量 + PLA 变量
+        v_set = y_set = lam_set = 0
+        for j in route_seq[1:-1]:                   # 跳过 depot
+            # v[j]
+            var = m.getVarByName(f"v[{j}]")
+            if var is not None:
+                var.Start = 1
+                v_set += 1
+
+            # u[j]
+            var = m.getVarByName(f"u[{j}]")
+            if var is not None:
+                var.Start = arrival[j]
+
+            # y[j]
+            yj = swap_at[j]
+            var = m.getVarByName(f"y[{j}]")
+            if var is not None:
+                var.Start = yj
+                y_set += 1
+
+            # w[j, y_val] — 仅所选 y_val 为 1
+            for y_val in Y_domain:
+                var = m.getVarByName(f"w[{j},{y_val}]")
+                if var is not None:
+                    var.Start = 1 if y_val == yj else 0
+
+            # lam[j, y_val, s] — SOS2 线性插值
+            uj = arrival[j]
+            s_lo = max(si for si in range(len(tau_arr))
+                       if tau_arr[si] <= uj + 1e-12)
+            s_hi = min(si for si in range(len(tau_arr))
+                       if tau_arr[si] >= uj - 1e-12)
+
+            if s_lo == s_hi:
+                for s in S_domain:
+                    var = m.getVarByName(f"lam[{j},{yj},{s}]")
+                    if var is not None:
+                        var.Start = 1.0 if s == s_lo else 0.0
+                        lam_set += 1
+            else:
+                denom = tau_arr[s_hi] - tau_arr[s_lo]
+                w_lo = ((tau_arr[s_hi] - uj) / denom) if denom > 0 else 1.0
+                w_hi = ((uj - tau_arr[s_lo]) / denom) if denom > 0 else 0.0
+                for s in S_domain:
+                    var = m.getVarByName(f"lam[{j},{yj},{s}]")
+                    if var is not None:
+                        if s == s_lo:
+                            var.Start = w_lo
+                        elif s == s_hi:
+                            var.Start = w_hi
+                        else:
+                            var.Start = 0.0
+                        lam_set += 1
+
+            # 其他 y_val 的所有 lam 为 0
+            for yy in Y_domain:
+                if yy == yj:
+                    continue
+                for s in S_domain:
+                    var = m.getVarByName(f"lam[{j},{yy},{s}]")
+                    if var is not None:
+                        var.Start = 0.0
+
+        warm_log_parts.append(f"v={v_set} y={y_set} lam>0={lam_set}")
+        if progress_tracker is None:
+            print(f"  [Warm-Start] 变量注入: {', '.join(warm_log_parts)}")
+
+        return True, len(route_seq) - 2
+
+    warm_ok, warm_visited = _build_warm_start()
+    if warm_ok:
+        m.NumStart = 1
+        if progress_tracker is None:
+            print(f"  [Warm-Start] 贪心启发式注入初始可行解, "
+                  f"访问 {warm_visited} 个网格")
+    else:
+        if progress_tracker is None:
+            print("  [Warm-Start] 贪心启发式未能构造可行解, 跳过")
 
     # ==========================================================================
     # 6. 求解执行

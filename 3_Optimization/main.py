@@ -20,14 +20,14 @@ from Pre_Process import (
 # =========================================================================
 # 默认参数配置
 # =========================================================================
-DEFAULT_DATA_FILE = "Grid_Utility_Test.csv"          # 输入数据文件
+DEFAULT_DATA_FILE = "3_Optimization\\Grid_Utility_Test.csv"           # 输入数据文件
 DEFAULT_OUTPUT_DIR = "Optimization Result"            # 输出目录
 DEFAULT_SPEED_KMH = 30.0                              # 车辆平均速度 (km/h)
 DEFAULT_C_MAX = 20                                    # 车辆最大载电池数
 DEFAULT_T_TOTAL = 1.0                                 # 规划周期总时长 (小时)
 DEFAULT_P_INTERVALS = 20                              # PLA 时间分段数
 DEFAULT_SWAP_TIME_C = 0.02                            # 单块电池换电服务时间 (小时)
-DEFAULT_BIG_M = 1.5                                   # Big-M 常数
+DEFAULT_BIG_M = 1.5                                   # Big-M 常数 (现由求解器内部自适应收紧, 此值仅作后备)
 DEFAULT_MAX_TRAVEL_TIME = 0.4                         # 弧段裁剪阈值 (小时)
 
 
