@@ -116,6 +116,20 @@ def optimize_evrp_with_pla(
     w = m.addVars(grids, Y_domain, vtype=GRB.BINARY, name="w")
     lam = m.addVars(grids, Y_domain, S_domain, vtype=GRB.CONTINUOUS, lb=0.0, name="lam")
 
+    # ---- 构建字符串键查找表 (免疫 numpy/pandas 类型漂移, 供 Warm-Start 使用) ----
+    _x_by_str = {}          # (str(i), str(j)) → Var
+    for (i, j), var in x.items():
+        _x_by_str[(str(i), str(j))] = var
+    _v_by_str = {str(k): var for k, var in v.items()}
+    _u_by_str = {str(k): var for k, var in u.items()}
+    _y_by_str = {str(k): var for k, var in y.items()}
+    _w_by_str = {}          # (str(j), str(yv)) → Var
+    for (j, yv), var in w.items():
+        _w_by_str[(str(j), str(yv))] = var
+    _lam_by_str = {}        # (str(j), str(yv), str(s)) → Var
+    for (j, yv, s_val), var in lam.items():
+        _lam_by_str[(str(j), str(yv), str(s_val))] = var
+
     # ==========================================================================
     # 2. 目标函数
     # ==========================================================================
@@ -305,16 +319,15 @@ def optimize_evrp_with_pla(
         if len(route_seq) <= 2:                     # 仅 depot → depot
             return None, 0
 
-        # ---- 通过变量名直接设置 MIP Start (绕过 tupledict 类型匹配问题) ----
+        # ---- 通过字符串键查找表设置 MIP Start (免疫所有类型问题) ----
         tau_arr = tau_list
         warm_log_parts = []
 
-        # 路由变量 x — 使用 getVarByName 做字符串精确查找
+        # 路由变量 x — 字符串键查找
         x_set = 0
         for idx in range(len(route_seq) - 1):
             i, j = route_seq[idx], route_seq[idx + 1]
-            # Gurobi addVars 的命名规则: name[key] → 例如 x[0,grid_abc]
-            var = m.getVarByName(f"x[{i},{j}]")
+            var = _x_by_str.get((str(i), str(j)))
             if var is not None:
                 var.Start = 1
                 x_set += 1
@@ -323,27 +336,30 @@ def optimize_evrp_with_pla(
         # 访问 / 时间 / 换电量 + PLA 变量
         v_set = y_set = lam_set = 0
         for j in route_seq[1:-1]:                   # 跳过 depot
+            j_key = str(j)
+
             # v[j]
-            var = m.getVarByName(f"v[{j}]")
+            var = _v_by_str.get(j_key)
             if var is not None:
                 var.Start = 1
                 v_set += 1
 
             # u[j]
-            var = m.getVarByName(f"u[{j}]")
+            var = _u_by_str.get(j_key)
             if var is not None:
                 var.Start = arrival[j]
 
             # y[j]
             yj = swap_at[j]
-            var = m.getVarByName(f"y[{j}]")
+            yj_key = str(yj)
+            var = _y_by_str.get(j_key)
             if var is not None:
                 var.Start = yj
                 y_set += 1
 
             # w[j, y_val] — 仅所选 y_val 为 1
             for y_val in Y_domain:
-                var = m.getVarByName(f"w[{j},{y_val}]")
+                var = _w_by_str.get((j_key, str(y_val)))
                 if var is not None:
                     var.Start = 1 if y_val == yj else 0
 
@@ -356,7 +372,7 @@ def optimize_evrp_with_pla(
 
             if s_lo == s_hi:
                 for s in S_domain:
-                    var = m.getVarByName(f"lam[{j},{yj},{s}]")
+                    var = _lam_by_str.get((j_key, yj_key, str(s)))
                     if var is not None:
                         var.Start = 1.0 if s == s_lo else 0.0
                         lam_set += 1
@@ -365,7 +381,7 @@ def optimize_evrp_with_pla(
                 w_lo = ((tau_arr[s_hi] - uj) / denom) if denom > 0 else 1.0
                 w_hi = ((uj - tau_arr[s_lo]) / denom) if denom > 0 else 0.0
                 for s in S_domain:
-                    var = m.getVarByName(f"lam[{j},{yj},{s}]")
+                    var = _lam_by_str.get((j_key, yj_key, str(s)))
                     if var is not None:
                         if s == s_lo:
                             var.Start = w_lo
@@ -380,7 +396,7 @@ def optimize_evrp_with_pla(
                 if yy == yj:
                     continue
                 for s in S_domain:
-                    var = m.getVarByName(f"lam[{j},{yy},{s}]")
+                    var = _lam_by_str.get((j_key, str(yy), str(s)))
                     if var is not None:
                         var.Start = 0.0
 
