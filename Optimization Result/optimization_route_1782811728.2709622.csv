@@ -1,0 +1,12 @@
+grid_id,arrival_time_hrs,batteries_swapped
+DEPOT,0.0,0
+8940e354ca7ffff,0.1,1
+8940e354dabffff,0.2,3
+8940e30b2d3ffff,0.3,2
+8940e354d23ffff,0.4,2
+8940e30b257ffff,0.5,2
+8940e354da7ffff,0.6,2
+8940e354db3ffff,0.7,1
+8940e30b60fffff,0.8,1
+8940e354dd7ffff,0.9,1
+DEPOT,0.9970825237382627,0
