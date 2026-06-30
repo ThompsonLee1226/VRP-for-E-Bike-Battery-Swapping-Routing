@@ -25,10 +25,10 @@ DEFAULT_OUTPUT_DIR = "Optimization Result"            # 输出目录
 DEFAULT_SPEED_KMH = 30.0                              # 车辆平均速度 (km/h)
 DEFAULT_C_MAX = 20                                    # 车辆最大载电池数
 DEFAULT_T_TOTAL = 1.0                                 # 规划周期总时长 (小时)
-DEFAULT_P_INTERVALS = 10                              # PLA 时间分段数 (Tier-2: 20→10, 减半 SOS2 数量)
+DEFAULT_P_INTERVALS = 5                               # PLA 时间分段数 (Tier-3: 10→5, 进一步减半 Delta 变量)
 DEFAULT_SWAP_TIME_C = 0.02                            # 单块电池换电服务时间 (小时)
 DEFAULT_BIG_M = 1.5                                   # Big-M 常数 (现由求解器内部自适应收紧, 此值仅作后备)
-DEFAULT_MAX_TRAVEL_TIME = 0.4                         # 弧段裁剪阈值 (小时)
+DEFAULT_MAX_TRAVEL_TIME = 0.2                         # 弧段裁剪阈值 (小时) — Tier-3: 0.4→0.2 收紧弧段
 
 
 # =========================================================================
@@ -552,9 +552,9 @@ if __name__ == "__main__":
         vehicle_speed_kmh=30.0,
         C_max=20,
         T_total=1.0,
-        P_intervals=DEFAULT_P_INTERVALS,   # 10 (原 20) — Tier-2 减半 SOS2 数量
+        P_intervals=DEFAULT_P_INTERVALS,   # 5 (原 10) — Tier-3: 进一步减半 Delta 变量
         swap_time_c=0.02,
         BigM=200.0,
-        max_travel_time=0.33,   # ≈20 分钟 — 弧段裁剪阈值
+        max_travel_time=DEFAULT_MAX_TRAVEL_TIME,  # 0.2h — 弧段裁剪阈值
         verbose=True,
     )
