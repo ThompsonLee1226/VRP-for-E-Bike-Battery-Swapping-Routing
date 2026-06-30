@@ -2,421 +2,304 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>换电策略 Utility 3D 可视化系统</title>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <title>Utility Landscape Visualizer</title>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
     <style>
         :root {
             --primary-color: #2c3e50;
-            --accent-color: #3498db;
-            --bg-color: #ecf0f1;
+            --bg-color: #f8f9fa;
             --panel-bg: #ffffff;
+            --border-color: #e9ecef;
             --text-main: #333333;
+            --text-muted: #6c757d;
         }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 0;
-            display: flex;
-            height: 100vh;
             background-color: var(--bg-color);
             color: var(--text-main);
-        }
-        /* 左侧控制面板 */
-        #control-panel {
-            width: 380px;
-            background-color: var(--panel-bg);
-            padding: 20px 30px;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-            overflow-y: auto;
             display: flex;
-            flex-direction: column;
-            gap: 20px;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .sidebar {
+            width: 320px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            overflow-y: auto;
             z-index: 10;
         }
-        /* 右侧可视化区域 */
-        #visualization-panel {
+        .main-content {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
-            padding: 20px;
+            position: relative;
         }
-        #plot-container {
+        .header {
+            padding: 15px 25px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: var(--primary-color);
+        }
+        .header p {
+            margin: 5px 0 0 0;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        #plot_div {
             flex-grow: 1;
-            background-color: var(--panel-bg);
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            padding: 10px;
+            width: 100%;
         }
-        h1, h2, h3 { color: var(--primary-color); margin: 0 0 10px 0; }
-        h1 { font-size: 1.4rem; border-bottom: 2px solid var(--accent-color); padding-bottom: 10px; }
-        h2 { font-size: 1.1rem; margin-top: 10px; }
-        
-        /* 控制组件样式 */
         .control-group {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-            border: 1px solid #e9ecef;
+            margin-bottom: 20px;
         }
-        .slider-container { margin-bottom: 15px; }
-        .slider-container:last-child { margin-bottom: 0; }
-        label {
+        .control-header {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .control-header label {
             font-size: 0.9rem;
             font-weight: 600;
-            margin-bottom: 5px;
+        }
+        .val-display {
+            font-size: 0.85rem;
+            color: var(--primary-color);
+            background: #eef2f5;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-family: monospace;
         }
         input[type=range] {
             width: 100%;
             cursor: pointer;
         }
-        
-        /* 只读数据展示样式 */
-        .data-display {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-top: 10px;
-        }
-        .data-card {
-            background: #e3f2fd;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: center;
-            font-size: 0.85rem;
-            color: #1565c0;
-            border: 1px solid #bbdefb;
-        }
-        .data-card strong {
-            display: block;
-            font-size: 1.1rem;
-            margin-top: 5px;
-            color: #0d47a1;
-        }
-        
-        /* 使用说明 */
-        .instructions {
-            font-size: 0.85rem;
-            color: #666;
-            line-height: 1.5;
-            background: #fff3e0;
-            padding: 12px;
-            border-left: 4px solid #ff9800;
-            border-radius: 4px;
+        .section-title {
+            font-size: 1rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 5px;
+            margin-top: 30px;
+            margin-bottom: 15px;
         }
     </style>
 </head>
 <body>
 
-    <div id="control-panel">
-        <h1>换电策略参数控制台</h1>
+    <div class="sidebar">
+        <h2 style="font-size: 1.1rem; margin-top: 0;">环境参数设置</h2>
+        <p style="font-size: 0.8rem; color: #666; margin-bottom: 20px;">
+            请调节下方参数，右侧三维图将实时渲染基于 <strong>决策变量 (y, u)</strong> 的效用曲面。
+        </p>
+
+        <div class="section-title">车辆库存状态</div>
         
-        <div class="instructions">
-            <b>操作指南：</b><br>
-            1. 拖动 <b>时间节点 (Hour)</b>，系统将自动加载该周期对应的初始车辆状态。<br>
-            2. 调节 <b>调度与决策参数</b>，右侧的三维曲面图将实时重绘，展示借车率与还车率变化对 Utility 的影响。<br>
-            3. 在图表区支持鼠标左键旋转、右键平移、滚轮缩放。
+        <div class="control-group">
+            <div class="control-header">
+                <label>亏电车 (n_low)</label>
+                <span class="val-display" id="val_n_low">2</span>
+            </div>
+            <input type="range" id="n_low" min="0" max="20" step="1" value="2">
         </div>
 
         <div class="control-group">
-            <h2>外部环境 (按小时自动匹配)</h2>
-            <div class="slider-container">
-                <label for="stat-select"><span>统计方式</span> <span id="stat-val">mean</span></label>
-                <select id="stat-select">
-                    <option value="mean" selected>mean</option>
-                    <option value="median">median</option>
-                    <option value="max">max</option>
-                </select>
+            <div class="control-header">
+                <label>即将亏电 (n_soon)</label>
+                <span class="val-display" id="val_n_soon">3</span>
             </div>
-            <div class="slider-container">
-                <label for="hour-slider"><span>时间节点 (Hour)</span> <span id="hour-val">0</span></label>
-                <input type="range" id="hour-slider" min="0" max="23" step="1" value="0">
-            </div>
-            
-            <div class="data-display">
-                <div class="data-card">亏电车<br><strong id="n-low-val">0.00</strong></div>
-                <div class="data-card">待亏电<br><strong id="n-soon-val">0.00</strong></div>
-                <div class="data-card">满电车<br><strong id="n-normal-val">0.00</strong></div>
-            </div>
-            <div style="font-size: 0.8rem; color: #888; text-align: right; margin-top: 5px;">*历史均值: 借车率 <span id="hist-rent">0.00</span> | 还车率 <span id="hist-return">0.00</span></div>
+            <input type="range" id="n_soon" min="0" max="20" step="1" value="3">
         </div>
 
         <div class="control-group">
-            <h2>决策与周期参数</h2>
-            <div class="slider-container">
-                <label for="y-slider"><span>换电数量 (y)</span> <span id="y-val">2.0</span></label>
-                <input type="range" id="y-slider" min="0" max="10" step="0.5" value="2">
+            <div class="control-header">
+                <label>满电车 (n_normal)</label>
+                <span class="val-display" id="val_n_normal">2</span>
             </div>
-            <div class="slider-container">
-                <label for="T-slider"><span>总决策周期 (T)</span> <span id="T-val">1.0</span></label>
-                <input type="range" id="T-slider" min="0.5" max="5.0" step="0.5" value="1.0">
+            <input type="range" id="n_normal" min="0" max="20" step="1" value="2">
+        </div>
+
+        <div class="section-title">流出与流入率</div>
+
+        <div class="control-group">
+            <div class="control-header">
+                <label>借车到达率 (λ)</label>
+                <span class="val-display" id="val_lam">10.0</span>
             </div>
-            <div class="slider-container">
-                <label for="u-slider"><span>调度车到达时刻 (u)</span> <span id="u-val">0.0</span></label>
-                <input type="range" id="u-slider" min="0.0" max="1.0" step="0.1" value="0.0">
+            <input type="range" id="lam" min="0" max="40" step="2" value="10">
+        </div>
+
+        <div class="control-group">
+            <div class="control-header">
+                <label>还车到达率 (μ)</label>
+                <span class="val-display" id="val_mu">12.0</span>
             </div>
+            <input type="range" id="mu" min="0" max="40" step="2" value="12">
+        </div>
+        
+        <div class="section-title" style="margin-top:40px; border:none; font-size: 0.8rem; text-align: center;">
+            规划总时长 (T) 默认固定为 1.0 
         </div>
     </div>
 
-    <div id="visualization-panel">
-        <div id="plot-container"></div>
+    <div class="main-content">
+        <div class="header">
+            <h1>Decision Variable Utility Explorer</h1>
+            <p>X轴: 计划换电量 (y) | Y轴: 调度到达时间 (u) | Z轴: 效用 (Utility)</p>
+        </div>
+        <div id="plot_div"></div>
     </div>
 
     <script>
-        const hourlyData = [
-            {hour:0, rent:0.6379979743416611, ret:0.6798615800135044, low:0.026839972991222146, soon:0.5400911546252533, normal:4.075624577987846},
-            {hour:1, rent:0.38690074274139097, ret:0.41171505739365294, low:0.020425388251181634, soon:0.5336765698852127, normal:4.093349088453747},
-            {hour:2, rent:0.2968433490884537, ret:0.30815327481431465, low:0.014939230249831195, soon:0.4550135043889264, normal:4.176907494935854},
-            {hour:3, rent:0.20298784604996623, ret:0.21218771100607697, low:0.011731937879810939, soon:0.4062288993923025, normal:4.2266205266711685},
-            {hour:4, rent:0.14795746117488184, ret:0.1551316677920324, low:0.010887913571910872, soon:0.38453747467927074, normal:4.25016880486158},
-            {hour:5, rent:0.200202565833896, ret:0.17927076299797434, low:0.011309925725860905, soon:0.3593855503038488, normal:4.277261985145172},
-            {hour:6, rent:0.7458642808912896, ret:0.6136056718433491, low:0.012322754895340985, soon:0.3810769750168805, normal:4.2575962187711},
-            {hour:7, rent:2.863858879135719, ret:2.4805030384875084, low:0.012153950033760972, soon:0.3861411208642809, normal:4.2483119513842},
-            {hour:8, rent:3.37457798784605, ret:3.4897029034436193, low:0.016711681296421338, soon:0.4172856178257934, normal:4.168129642133693},
-            {hour:9, rent:2.3609047940580687, ret:2.4599088453747466, low:0.01899054692775152, soon:0.4425219446320054, normal:4.1340310600945305},
-            {hour:10, rent:2.0570560432140446, ret:2.0437204591492235, low:0.016542876434841324, soon:0.4239534098582039, normal:4.178511141120865},
-            {hour:11, rent:2.4709640892914915, ret:2.3277256551277903, low:0.013021675833063734, soon:0.4042381106438046, normal:4.228728566806859},
-            {hour:12, rent:2.9832786622929834, ret:2.9755980478438273, low:0.010160812865029203, soon:0.3742699415953276, normal:4.268981518521482},
-            {hour:13, rent:3.1457716617329385, ret:3.077686214897192, low:0.010560844867589406, soon:0.37378990319225536, normal:4.282742619409553},
-            {hour:14, rent:3.0587246979758382, ret:3.097527802224178, low:0.01168093447475798, soon:0.40147211776942154, normal:4.238899111928954},
-            {hour:15, rent:3.0600048003840308, ret:2.9914393151452114, low:0.012881030482438596, soon:0.3656292503400272, normal:4.279062324985999},
-            {hour:16, rent:3.476598127850228, ret:3.30538443075446, low:0.017201376110088807, soon:0.4053124249939995, normal:4.2367389391151296},
-            {hour:17, rent:5.244499559964797, ret:4.903272261780942, low:0.021201696135690857, soon:0.45035602848227857, normal:4.197935834866789},
-            {hour:18, rent:5.065765261220898, ret:5.380350428034243, low:0.025682054564365148, soon:0.4826786142891431, normal:4.15913273061845},
-            {hour:19, rent:3.6883750700056006, ret:3.802944235538843, low:0.03728298263861109, soon:0.5720457636610928, normal:4.056324505960477},
-            {hour:20, rent:3.1730538443075447, ret:3.290743259460757, low:0.04304344347547804, soon:0.5991679334346748, normal:4.011200896071686},
-            {hour:21, rent:2.3621889751180096, ret:2.5130010400832066, low:0.04528362268981519, soon:0.6590127210176814, normal:3.939915193215457},
-            {hour:22, rent:1.5654052324185934, ret:1.6949355948475877, low:0.04448355868469477, soon:0.6802144171533723, normal:3.9108728698295865},
-            {hour:23, rent:0.9143131450516041, ret:0.9840787262981039, low:0.03920313625090007, soon:0.6199695975678055, normal:3.9797583806704537}
-        ];
-        const hourlyDataMedian = [
-            {hour:0, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
-            {hour:1, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
-            {hour:2, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
-            {hour:3, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
-            {hour:4, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0},
-            {hour:5, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:6, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:7, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:8, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:9, rent:0.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:10, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:11, rent:1.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:12, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:13, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:14, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:15, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:16, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:17, rent:2.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:18, rent:2.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:19, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:20, rent:1.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:21, rent:0.0, ret:1.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:22, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:2.0},
-            {hour:23, rent:0.0, ret:0.0, low:0.0, soon:0.0, normal:1.0}
-        ];
-        const hourlyDataMax = [
-            {hour:0, rent:20, ret:17, low:1, soon:4, normal:33},
-            {hour:1, rent:9, ret:11, low:1, soon:7, normal:26},
-            {hour:2, rent:9, ret:8, low:2, soon:7, normal:23},
-            {hour:3, rent:7, ret:8, low:2, soon:6, normal:21},
-            {hour:4, rent:10, ret:5, low:1, soon:7, normal:20},
-            {hour:5, rent:8, ret:6, low:0, soon:4, normal:19},
-            {hour:6, rent:3, ret:48, low:1, soon:3, normal:6},
-            {hour:7, rent:33, ret:133, low:1, soon:7, normal:30},
-            {hour:8, rent:51, ret:132, low:1, soon:16, normal:84},
-            {hour:9, rent:39, ret:67, low:2, soon:8, normal:100},
-            {hour:10, rent:41, ret:62, low:3, soon:5, normal:73},
-            {hour:11, rent:57, ret:65, low:0, soon:9, normal:48},
-            {hour:12, rent:64, ret:79, low:2, soon:9, normal:71},
-            {hour:13, rent:67, ret:92, low:0, soon:9, normal:55},
-            {hour:14, rent:84, ret:79, low:1, soon:15, normal:81},
-            {hour:15, rent:101, ret:67, low:1, soon:14, normal:86},
-            {hour:16, rent:89, ret:80, low:1, soon:14, normal:52},
-            {hour:17, rent:100, ret:87, low:1, soon:8, normal:43},
-            {hour:18, rent:80, ret:119, low:1, soon:8, normal:33},
-            {hour:19, rent:88, ret:80, low:3, soon:9, normal:42},
-            {hour:20, rent:83, ret:70, low:6, soon:13, normal:38},
-            {hour:21, rent:36, ret:73, low:4, soon:21, normal:109},
-            {hour:22, rent:22, ret:61, low:1, soon:17, normal:138},
-            {hour:23, rent:17, ret:41, low:7, soon:20, normal:155}
-        ];
-
-        const hourlyDataSets = {
-            mean: hourlyData,
-            median: hourlyDataMedian,
-            max: hourlyDataMax
-        };
-
-
-        // 2. 将你的 Python Utility 函数移植为 JavaScript 等效函数
-        function calcUtility(lam, mu, u, y, n_low, n_soon, n_normal, T) {
-            // 因子 1: instant-jump
+        // ----------------------------------------------------
+        // 1. 核心数学模型：JS 版 Utility 函数转换
+        // ----------------------------------------------------
+        function calculateUtility(lam, mu, u, y, n_low, n_soon, n_normal, T = 1.0) {
+            // Factor 1: instant-jump
             let delta_B = Math.min(y, n_low) * 0.8 + Math.min(n_soon, Math.max(0, y - n_low)) * 0.5;
 
-            // 因子 2: conversion-rate
+            // Factor 2: conversion-rate (W)
             let N_u = n_soon + n_normal + Math.min(n_low, y) + (mu - lam) * u;
             let N_T = n_soon + n_normal + Math.min(n_low, y) + (mu - lam) * T;
             
+            // Clip
             N_u = Math.max(N_u, 1e-6);
             N_T = Math.max(N_T, 1e-6);
 
-            let W = 0.0;
-            if (Math.abs(mu - lam) <= 1e-5) {
-                W = 1.0 - Math.exp(- (lam / N_u) * (T - u));
-            } else {
+            let W = 0;
+            if (Math.abs(mu - lam) > 1e-5) {
                 let exponent = lam / (mu - lam);
                 let ratio = Math.max(N_u / N_T, 1e-6);
                 W = 1.0 - Math.pow(ratio, exponent);
+            } else {
+                W = 1.0 - Math.exp(- (lam / N_u) * (T - u));
             }
-            W = Math.max(0.0, Math.min(W, 1.0)); // 裁剪至 [0, 1]
+            W = Math.max(0, Math.min(W, 1.0)); // Clip [0, 1]
 
-            // 因子 3: stock-out-risk
-            let N_serv = Math.max(0, n_soon + n_normal - lam * u);
+            // Factor 3: stock-out-risk (R)
+            let N_serv = Math.max(0, n_soon + n_normal - lam * u + mu * u);
             let expected_demand = lam * (T - u);
 
-            let R = 0.0;
+            let R = 0;
             if (expected_demand > 1e-6) {
                 R = Math.max(0, (expected_demand - N_serv) / expected_demand);
             }
-            R = Math.max(0.0, Math.min(R, 1.0)); // 裁剪至 [0, 1]
+            R = Math.max(0, Math.min(R, 1.0)); // Clip [0, 1]
 
             return delta_B * W * R;
         }
 
-        // 3. UI 交互与图表渲染逻辑
-        const domElements = {
-            stat: document.getElementById('stat-select'),
-            hour: document.getElementById('hour-slider'),
-            y: document.getElementById('y-slider'),
-            T: document.getElementById('T-slider'),
-            u: document.getElementById('u-slider'),
-            
-            statVal: document.getElementById('stat-val'),
-            hourVal: document.getElementById('hour-val'),
-            yVal: document.getElementById('y-val'),
-            TVal: document.getElementById('T-val'),
-            uVal: document.getElementById('u-val'),
-            
-            nLow: document.getElementById('n-low-val'),
-            nSoon: document.getElementById('n-soon-val'),
-            nNormal: document.getElementById('n-normal-val'),
-            histRent: document.getElementById('hist-rent'),
-            histReturn: document.getElementById('hist-return')
-        };
+        // ----------------------------------------------------
+        // 2. 网格数据生成器
+        // ----------------------------------------------------
+        function generatePlotData(lam, mu, n_low, n_soon, n_normal) {
+            let y_vals = []; // X axis in plot
+            let u_vals = []; // Y axis in plot
+            let z_vals = []; // Z axis (Utility)
 
-        // 监听 T 值变化，动态限制 u 的最大值 (因为 u 不能大于 T)
-        domElements.T.addEventListener('input', (e) => {
-            const currentT = parseFloat(e.target.value);
-            domElements.u.max = currentT;
-            if (parseFloat(domElements.u.value) > currentT) {
-                domElements.u.value = currentT;
+            // 精度设置：换电量 y 从 0 到 15，步长 0.5
+            for (let y = 0; y <= 15; y += 0.5) {
+                y_vals.push(y);
             }
-            updateVisualization();
-        });
-
-        // 统一绑定其他滑块事件
-        ['stat', 'hour', 'y', 'u'].forEach(key => {
-            domElements[key].addEventListener('input', updateVisualization);
-        });
-
-        function updateVisualization() {
-            const stat = domElements.stat.value;
-            // 获取当前控制台参数
-            const hour = parseInt(domElements.hour.value);
-            const y = parseFloat(domElements.y.value);
-            const T = parseFloat(domElements.T.value);
-            const u = parseFloat(domElements.u.value);
-            
-            const dataset = hourlyDataSets[stat] || hourlyData;
-            const hourlyDataByHour = dataset.reduce((acc, item) => {
-                acc[item.hour] = item;
-                return acc;
-            }, {});
-
-            // 获取对应小时的 CSV 数据 
-            const fallback = hourlyData[0];
-            const data = hourlyDataByHour[hour] || fallback;
-            if (!hourlyDataByHour[hour]) {
-                console.warn(`Missing hour=${hour} in ${stat} dataset. Fallback to mean hour=0.`);
+            // 精度设置：到达时间 u 从 0.01 到 0.99，步长 0.02
+            for (let u = 0.01; u < 1.0; u += 0.02) {
+                u_vals.push(u);
             }
-            const n_low = data.low;
-            const n_soon = data.soon;
-            const n_normal = data.normal;
 
-            const yCap = Math.max(n_low + n_soon, 0);
-            domElements.y.max = yCap.toFixed(3);
-            if (parseFloat(domElements.y.value) > yCap) {
-                domElements.y.value = yCap;
-            }
-            const yAdjusted = parseFloat(domElements.y.value);
-
-            // 更新左侧数值显示
-            domElements.statVal.textContent = stat;
-            domElements.hourVal.textContent = hour + ":00";
-            domElements.yVal.textContent = yAdjusted.toFixed(3);
-            domElements.TVal.textContent = T.toFixed(1);
-            domElements.uVal.textContent = u.toFixed(1);
-            
-            domElements.nLow.textContent = n_low.toFixed(3);
-            domElements.nSoon.textContent = n_soon.toFixed(3);
-            domElements.nNormal.textContent = n_normal.toFixed(3);
-            domElements.histRent.textContent = data.rent.toFixed(2);
-            domElements.histReturn.textContent = data.ret.toFixed(2);
-
-            // 生成网格数据用于 3D 绘图 (借车率和还车率从 0 到 6.0，覆盖 CSV 中的极值)
-            const rentRates = [];
-            const returnRates = [];
-            const zData = [];
-            
-            const steps = 40;
-            const maxRate = 20.0;
-
-            for (let i = 0; i <= steps; i++) {
-                let currentReturn = (i / steps) * maxRate;
-                returnRates.push(currentReturn);
-                let zRow = [];
-                for (let j = 0; j <= steps; j++) {
-                    let currentRent = (j / steps) * maxRate;
-                    if (i === 0) rentRates.push(currentRent);
-                    
-                    // 计算对应的 Utility
-                    let util = calcUtility(currentRent, currentReturn, u, yAdjusted, n_low, n_soon, n_normal, T);
-                    zRow.push(util);
+            // 计算 Z 矩阵 (外层循环 Y 轴, 内层循环 X 轴是 Plotly surface 的格式要求)
+            for (let i = 0; i < u_vals.length; i++) {
+                let z_row = [];
+                for (let j = 0; j < y_vals.length; j++) {
+                    let z = calculateUtility(lam, mu, u_vals[i], y_vals[j], n_low, n_soon, n_normal);
+                    z_row.push(z);
                 }
-                zData.push(zRow);
+                z_vals.push(z_row);
             }
 
-            // 使用 Plotly 渲染
-            const plotData = [{
-                z: zData,
-                x: rentRates,
-                y: returnRates,
-                type: 'surface',
-                colorscale: 'Viridis',
-                colorbar: { title: 'Utility', thickness: 20 }
-            }];
-
-            const layout = {
-                title: 'Utility Function Landscape',
-                autosize: true,
-                margin: { l: 0, r: 0, b: 0, t: 50 },
-                scene: {
-                    xaxis: { title: 'Rent Rate (λ)', titlefont: { color: '#e74c3c' } },
-                    yaxis: { title: 'Return Rate (μ)', titlefont: { color: '#2ecc71' } },
-                    zaxis: { title: 'Utility (U)' },
-                    camera: { eye: { x: -1.5, y: -1.5, z: 1.2 } }
-                },
-                paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)'
-            };
-
-            Plotly.react('plot-container', plotData, layout, {responsive: true});
+            return { x: y_vals, y: u_vals, z: z_vals };
         }
 
-        // 初始化加载
-        updateVisualization();
+        // ----------------------------------------------------
+        // 3. 页面交互与 Plotly 渲染逻辑
+        // ----------------------------------------------------
+        const domElements = {
+            n_low: document.getElementById('n_low'),
+            n_soon: document.getElementById('n_soon'),
+            n_normal: document.getElementById('n_normal'),
+            lam: document.getElementById('lam'),
+            mu: document.getElementById('mu')
+        };
+
+        function getParams() {
+            return {
+                n_low: parseFloat(domElements.n_low.value),
+                n_soon: parseFloat(domElements.n_soon.value),
+                n_normal: parseFloat(domElements.n_normal.value),
+                lam: parseFloat(domElements.lam.value),
+                mu: parseFloat(domElements.mu.value)
+            };
+        }
+
+        function updatePlot() {
+            const params = getParams();
+            const data = generatePlotData(params.lam, params.mu, params.n_low, params.n_soon, params.n_normal);
+
+            const trace = {
+                x: data.x,
+                y: data.y,
+                z: data.z,
+                type: 'surface',
+                colorscale: 'Viridis',
+                colorbar: {
+                    title: 'Utility',
+                    thickness: 15,
+                    len: 0.7
+                }
+            };
+
+            const layout = {
+                autosize: true,
+                margin: { l: 0, r: 0, b: 0, t: 30 },
+                scene: {
+                    xaxis: { title: '换电量 (y)' },
+                    yaxis: { title: '到达时间 (u)' },
+                    zaxis: { title: 'Utility' },
+                    camera: {
+                        eye: {x: 1.5, y: -1.5, z: 1.2} // 初始化一个利于观察的倾斜视角
+                    }
+                }
+            };
+
+            // 使用 react 以最高性能进行重绘
+            Plotly.react('plot_div', [trace], layout);
+        }
+
+        // 绑定事件监听器：当滑块变动时，更新数值显示并重绘
+        Object.keys(domElements).forEach(key => {
+            domElements[key].addEventListener('input', function(e) {
+                // 更新侧边栏数值显示 (保留1位小数使其整齐)
+                document.getElementById(`val_${key}`).innerText = parseFloat(e.target.value).toFixed(1);
+                // 实时重绘
+                updatePlot();
+            });
+        });
+
+        // 初始化首次绘制
+        updatePlot();
+        
+        // 窗口缩放时自动适应
+        window.addEventListener('resize', () => {
+            Plotly.Plots.resize('plot_div');
+        });
     </script>
 </body>
 </html>
