@@ -1,0 +1,2 @@
+num_visited,total_swaps,total_travel_time_hrs,total_service_time_hrs,makespan_hrs,route_length
+10,20,0.42154651849180075,0.4,0.8215465184918007,11

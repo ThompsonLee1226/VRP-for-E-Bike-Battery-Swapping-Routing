@@ -46,16 +46,19 @@ def optimize_evrp_with_pla_delta_mcf(
     # ==========================================================================
     m.setParam('MIPGap', 0.05)
     m.setParam('TimeLimit', 1800)
-    m.setParam('Method', 0)              # Primal Simplex
-    m.setParam('Crossover', -1)          # auto
-    m.setParam('MIPFocus', 1)            # find feasible solutions
-    m.setParam('Heuristics', 0.15)       # default
-    m.setParam('Cuts', 2)                # aggressive — MCF + cuts synergistic
-    m.setParam('Symmetry', 2)            # aggressive symmetry breaking
-    m.setParam('NoRelHeurTime', 120)     # doubled heuristic phase
-    m.setParam('Threads', 8)             # full cores
+    m.setParam('Method', 2)              # Barrier — 大LP+退化网络远快于Simplex
+    m.setParam('Crossover', 0)           # 禁用crossover（MIP只需Barrier做LP松弛的边
+                                         # 界值，节点LP用NodeMethod=Dual回退）
+    m.setParam('MIPFocus', 3)            # 专注边界提升（gap由弱BestBd驱动）
+    m.setParam('Heuristics', 0.10)       # 减少启发式时间，省给LP求解
+    m.setParam('Cuts', 0)                # MCF已紧固LP，关闭割平面避免数百轮无效LP重解
+    m.setParam('Symmetry', 0)            # MCF流守恒破坏了对称性，无需额外处理
+    m.setParam('NoRelHeurTime', 30)      # 30s足够找到初始解，节省root时间
+    m.setParam('Threads', 8)
     m.setParam('PreDual', -1)            # auto
-    m.setParam('PrePasses', 5)           # extra presolve for MCF constraints
+    m.setParam('PrePasses', 1)           # 轻量预求解（MCF约束不需要深度化简）
+    m.setParam('NodeMethod', 2)          # 分支节点用Dual Simplex（可热启动）
+    m.setParam('BarConvTol', 1e-7)       # 适度放宽Barrier收敛（默认1e-8）加速LP
 
     # ==========================================================================
     # Adaptive Big-M
@@ -306,24 +309,30 @@ def optimize_evrp_with_pla_delta_mcf(
         m.addConstr(u[j] == delta_time, name=f"TimeSync_{j}")
 
     # ==========================================================================
-    # 5. Minimal Timing Constraints (MTZ fully removed)
+    # 5. Timing Constraints — Lazy MTZ (correctness without LP bloat)
     # ==========================================================================
-    # MTZ constraints are completely removed. Instead, we rely on:
-    #   (a) MCF flow conservation → valid tour structure (no subtours)
-    #   (b) TotalRouteTime → global time budget
-    #   (c) CycleDeadline → depot return feasibility
-    # This eliminates ~135K big-M constraints, dramatically lightening the LP.
+    # Pairwise MTZ constraints are NOT added to the initial model.
+    # Instead, they are enforced via a lazy constraint callback:
+    #   - LP relaxation: no MTZ → fast per-node solves
+    #   - Integer solution: callback checks all active arcs for MTZ violation
+    #     and adds only the violated constraints as lazy cuts.
+    # This keeps the LP lightweight while guaranteeing temporal correctness.
+    #
+    # Static constraints retained:
+    #   (a) StartTimeDepot / StartBatteryDepot
+    #   (b) TotalRouteTime → global time budget (1 constraint)
+    #   (c) CycleDeadline → depot return feasibility (1 per grid)
+    #   (d) MCF → routing structure (no subtours)
     m.addConstr(u[depot] == 0, name="StartTimeDepot")
     m.addConstr(y[depot] == 0, name="StartBatteryDepot")
 
     # ---- Total route time budget (single linear constraint) ----
-    # Σ travel_time · x  +  Σ service_time · y  ≤  T_total
     total_travel = gp.quicksum(
         travel_time[i][j] * x[i, j] for (i, j) in arc_list)
     total_service = gp.quicksum(swap_time_c * y[j] for j in grids)
     m.addConstr(total_travel + total_service <= T_total, name="TotalRouteTime")
 
-    # ---- Depot return deadline (1 per grid, only for arcs to depot) ----
+    # ---- Depot return deadline ----
     for i in grids:
         if depot in feasible_out[i]:
             m.addConstr(
@@ -332,8 +341,15 @@ def optimize_evrp_with_pla_delta_mcf(
                 name=f"CycleDeadline_{i}"
             )
 
+    # ---- Lazy MTZ: pre-compute arc list (excluding depot as destination) ----
+    _lazy_arcs = [(i, j) for (i, j) in arc_list if j != depot]
+    _lazy_arc_count = len(_lazy_arcs)
+    _mtz_added = set()  # track which arcs already have MTZ added as lazy
+
     if progress_tracker is None:
-        print(f"  [Timing] MTZ 已移除, 替代为 TotalRouteTime (1行) + "
+        print(f"  [Timing] MTZ → Lazy (0 初始行, 仅在整数解违反时添加, "
+              f"候选弧段 {_lazy_arc_count})")
+        print(f"  [Timing] 静态约束: TotalRouteTime (1行) + "
               f"CycleDeadline (~{len(grids)}行)")
 
     # ==========================================================================
@@ -491,22 +507,48 @@ def optimize_evrp_with_pla_delta_mcf(
             print("  [Warm-Start] 贪心启发式未能构造可行解, 跳过")
 
     # ==========================================================================
-    # 6. Solve
+    # 6. Solve (with Lazy MTZ callback)
     # ==========================================================================
-    def _gurobi_progress_callback(model, where):
-        if progress_tracker is None:
-            return
-        if where == GRB.Callback.MIP:
+    m.setParam('LazyConstraints', 1)  # enable lazy constraint addition
+
+    def _combined_callback(model, where):
+        """Combined callback: progress tracking + lazy MTZ enforcement."""
+        # --- progress tracking ---
+        if progress_tracker is not None and where == GRB.Callback.MIP:
             runtime = model.cbGet(GRB.Callback.RUNTIME)
             best_obj = model.cbGet(GRB.Callback.MIP_OBJBST)
             best_bound = model.cbGet(GRB.Callback.MIP_OBJBND)
             node_count = model.cbGet(GRB.Callback.MIP_NODCNT)
             progress_tracker.record(runtime, best_obj, best_bound, node_count)
 
-    if progress_tracker is None:
-        m.optimize()
-    else:
-        m.optimize(_gurobi_progress_callback)
+        # --- lazy MTZ: check every integer solution ---
+        if where == GRB.Callback.MIPSOL:
+            added = 0
+            for (i, j) in _lazy_arcs:
+                if (i, j) in _mtz_added:
+                    continue  # MTZ already added for this arc
+                # Only check arcs that are active in this integer solution
+                x_val = model.cbGetSolution(x[i, j])
+                if x_val < 0.5:
+                    continue
+                # Check MTZ violation
+                u_i = model.cbGetSolution(u[i])
+                u_j = model.cbGetSolution(u[j])
+                y_i = model.cbGetSolution(y[i])
+                required = u_i + swap_time_c * y_i + travel_time[i][j]
+                if u_j < required - 1e-6:
+                    # Add lazy MTZ constraint for this arc
+                    model.cbLazy(
+                        u[j] >= u[i] + swap_time_c * y[i] + travel_time[i][j]
+                               - BigM_mtz * (1 - x[i, j])
+                    )
+                    _mtz_added.add((i, j))
+                    added += 1
+            if added > 0 and progress_tracker is None:
+                print(f"  [Lazy MTZ] 本轮添加 {added} 条时序约束 "
+                      f"(累计 {len(_mtz_added)})")
+
+    m.optimize(_combined_callback)
 
     # Save references for downstream parsing
     m._x = x
