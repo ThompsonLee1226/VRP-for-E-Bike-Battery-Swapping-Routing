@@ -25,7 +25,7 @@ DEFAULT_OUTPUT_DIR = "Optimization Result"
 DEFAULT_SPEED_KMH = 30.0
 DEFAULT_C_MAX = 20
 DEFAULT_T_TOTAL = 1.0
-DEFAULT_P_INTERVALS = 5
+DEFAULT_P_INTERVALS = 10                     # PLA时间分段数 (0.1h分辨率, 原5)
 DEFAULT_SWAP_TIME_C = 0.02
 DEFAULT_BIG_M = 1.5
 DEFAULT_MAX_TRAVEL_TIME = 0.2
@@ -35,27 +35,29 @@ DEFAULT_Y_LEVELS = list(range(1, 11))               # 离散换电量: 1~10 (原
 # =========================================================================
 # Gurobi 求解进度追踪器
 # =========================================================================
+# =========================================================================
+# 精简进度追踪器
+# =========================================================================
 class GurobiProgressTracker:
-    """在回调中记录 Gurobi 的求解进度。"""
-
+    """只保留最近一条进度记录，配合 Optimize 中的精简回调输出。"""
     def __init__(self):
-        self.records = []
+        self.last = None
 
     def record(self, runtime, best_obj, best_bound, node_count):
-        self.records.append((runtime, best_obj, best_bound, node_count))
+        self.last = (runtime, best_obj, best_bound, node_count)
+
+    def gap(self):
+        if self.last is None:
+            return float('inf')
+        _, obj, bnd, _ = self.last
+        return abs(bnd - obj) / (abs(obj) + 1e-9) * 100
 
     def summary(self):
-        if not self.records:
-            return "No progress recorded."
-        last = self.records[-1]
-        gap = abs(last[2] - last[1]) / (abs(last[1]) + 1e-9) * 100
-        return (
-            f"Runtime: {last[0]:.1f}s | "
-            f"BestObj: {last[1]:.4f} | "
-            f"BestBound: {last[2]:.4f} | "
-            f"Gap: {gap:.2f}% | "
-            f"Nodes: {last[3]}"
-        )
+        if self.last is None:
+            return "无进度"
+        runtime, obj, bnd, nodes = self.last
+        return (f"{runtime:.0f}s obj={obj:.4f} bnd={bnd:.4f} "
+                f"gap={self.gap():.1f}% nodes={nodes}")
 
 
 # =========================================================================
@@ -136,69 +138,29 @@ def run_optimization_pipeline(
     verbose=True,
 ):
     """一站式执行完整管线 (Delta + MCF 版本)。"""
-    # -----------------------------------------------------------------
-    # Step 1: 数据加载与预处理
-    # -----------------------------------------------------------------
+    _y = y_levels if y_levels is not None else list(range(1, C_max + 1))
     if verbose:
-        print("=" * 60)
-        print("Step 1/6: 加载数据与预处理")
-        print("=" * 60)
+        print(f"[预处理] 数据={data_file} | "
+              f"C={C_max} T={T_total} P={P_intervals} "
+              f"Y={{{min(_y)}..{max(_y)}}} "
+              f"arc≤{max_travel_time}h | speed={vehicle_speed_kmh}km/h")
 
+    # Step 1-2: 数据加载 + 坐标提取
     grids, grid_params, snapshot_df = prepare_optimize_inputs(
         data_file, target_datetime=target_datetime
     )
     original_grid_count = len(grids)
-
-    if verbose:
-        print(f"  数据文件: {data_file}")
-        print(f"  目标时间: {pd.Timestamp(target_datetime).floor('h')}")
-        print(f"  原始网格数量: {original_grid_count}")
-
-    # -----------------------------------------------------------------
-    # Step 2: 提取坐标 & 构建旅行时间矩阵
-    # -----------------------------------------------------------------
-    if verbose:
-        print("\n" + "=" * 60)
-        print("Step 2/6: 提取坐标 & 构建旅行时间矩阵")
-        print("=" * 60)
-
     grid_coords = extract_grid_coordinates(snapshot_df)
 
     if depot_lat is None or depot_lon is None:
         depot_lat = float(np.mean([c[0] for c in grid_coords.values()]))
         depot_lon = float(np.mean([c[1] for c in grid_coords.values()]))
-        if verbose:
-            print(f"  Depot 坐标未指定，自动使用网格质心: "
-                  f"({depot_lat:.6f}, {depot_lon:.6f})")
-    else:
-        if verbose:
-            print(f"  Depot 坐标: ({depot_lat:.6f}, {depot_lon:.6f})")
 
     travel_time = build_full_travel_time_matrix(
         grids, grid_coords, depot_lat, depot_lon, vehicle_speed_kmh
     )
 
-    total_arcs = (len(grids) + 1) * len(grids)
-    feasible_arcs_pre = sum(
-        1 for i in travel_time for j in travel_time[i]
-        if i != j and travel_time[i][j] <= max_travel_time
-    )
-
-    if verbose:
-        print(f"  车速设定: {vehicle_speed_kmh} km/h")
-        print(f"  弧段裁剪阈值: ≤{max_travel_time}h")
-        print(f"  可行弧段预览: ~{feasible_arcs_pre} / ~{total_arcs} "
-              f"({100*feasible_arcs_pre/max(1,total_arcs):.1f}%)")
-
-    # -----------------------------------------------------------------
-    # Step 3: 构建 PLA 效用矩阵 Omega
-    # -----------------------------------------------------------------
-    if verbose:
-        print("\n" + "=" * 60)
-        print("Step 3/6: 构建 PLA 效用矩阵 Omega")
-        print("=" * 60)
-        print(f"  C_max={C_max}, T_total={T_total}, P_intervals={P_intervals}")
-
+    # Step 3: PLA 效用矩阵
     Omega, tau_list = generate_offline_utility_matrix(
         grids=grids,
         C_max=C_max,
@@ -209,20 +171,9 @@ def run_optimization_pipeline(
         y_levels=y_levels,
     )
 
-    # -----------------------------------------------------------------
     # Step 4: Geo-Fencing 空间剪枝
-    # -----------------------------------------------------------------
-    if verbose:
-        print("\n" + "=" * 60)
-        print("Step 4/6: Geo-Fencing 空间剪枝")
-        print("=" * 60)
-
     active_grids, Omega, active_params, active_coords, removed_zeros = \
         filter_zero_utility_grids(grids, Omega, grid_params, grid_coords)
-
-    if verbose:
-        print(f"  [节点过滤] 零效用网格剔除: {removed_zeros} / {original_grid_count}")
-        print(f"              活跃网格保留: {len(active_grids)}")
 
     travel_time = build_full_travel_time_matrix(
         active_grids, active_coords, depot_lat, depot_lon, vehicle_speed_kmh
@@ -233,9 +184,12 @@ def run_optimization_pipeline(
         if i != j and travel_time[i][j] <= max_travel_time
     )
     total_possible = (len(active_grids) + 1) * len(active_grids)
+
     if verbose:
-        print(f"  [边长裁剪] 活跃弧段: {feasible_arcs_count} / ~{total_possible} "
-              f"({100*feasible_arcs_count/max(1,total_possible):.1f}%)")
+        print(f"  网格: {original_grid_count}→{len(active_grids)} "
+              f"(剔除{removed_zeros}零效用) | "
+              f"弧段: {feasible_arcs_count}/{total_possible} "
+              f"({100*feasible_arcs_count/max(1,total_possible):.0f}%)")
 
     if not active_grids:
         if verbose:
@@ -248,15 +202,10 @@ def run_optimization_pipeline(
             "objective": 0.0, "route": [], "summary": {},
         }
 
-    # -----------------------------------------------------------------
-    # Step 5: 执行 PLA-MIP 求解 (Delta + MCF)
-    # -----------------------------------------------------------------
-    if verbose:
-        print("\n" + "=" * 60)
-        print("Step 5/6: 执行 Gurobi PLA-MIP 求解 (Delta + MCF 流约束)")
-        print("=" * 60)
-
+    # ===== Step 5: 求解 =====
     progress = GurobiProgressTracker() if verbose else None
+    if verbose:
+        print(f"[求解] 开始 Delta+MCF...")
 
     t_start = time.perf_counter()
     model = optimize_evrp_with_pla_delta_mcf(
@@ -274,19 +223,7 @@ def run_optimization_pipeline(
     )
     t_elapsed = time.perf_counter() - t_start
 
-    if verbose:
-        print(f"\n  求解耗时: {t_elapsed:.1f} 秒")
-        print(f"  求解状态: {model.Status}")
-        if progress and progress.records:
-            print(f"  进度摘要: {progress.summary()}")
-
-    # -----------------------------------------------------------------
-    # Step 6: 结果解析与输出
-    # -----------------------------------------------------------------
-    if verbose:
-        print("\n" + "=" * 60)
-        print("Step 6/6: 结果解析")
-        print("=" * 60)
+    # ===== Step 6: 结果解析 =====
 
     result = _parse_solution(model, active_grids, travel_time, swap_time_c, verbose=verbose)
 
@@ -346,13 +283,12 @@ def _parse_solution(model, grids, travel_time, swap_time_c, verbose=True):
     result["visited_grids"] = visited
 
     if verbose:
-        print(f"  求解状态: {status}")
-        print(f"  目标函数值: {obj_val:.6f}" if obj_val is not None else "  目标函数值: N/A")
-        print(f"  访问网格数: {len(visited)} / {len(grids)}")
+        obj_str = f"{obj_val:.4f}" if obj_val is not None else "N/A"
+        print(f"  [{status}] obj={obj_str} visited={len(visited)}/{len(grids)}")
 
     if not visited:
         if verbose:
-            print("  [信息] 未访问任何网格，路由为空。")
+            print("  路由为空。")
         return result
 
     def _arc_val(i, j):
@@ -432,19 +368,36 @@ def _parse_solution(model, grids, travel_time, swap_time_c, verbose=True):
     }
 
     if verbose:
-        print(f"\n  路由序列 ({len(route_seq)} 个节点):")
-        for step in result["route"]:
+        print(f"\n  路由 ({len(route_seq)}节点, {total_swaps}块电池):")
+        cum_time = 0.0
+        timing_issues = 0
+        prev_grid = depot
+        for idx, step in enumerate(result["route"]):
             if step["grid"] == "DEPOT":
-                print(f"    [DEPOT]  到达时间: {step['arrival_time']:.4f}h")
+                if idx > 0:
+                    cum_time += (swap_time_c * result["route"][idx - 1]["y_swapped"]
+                                 + travel_time[prev_grid][depot])
+                tag = "DEPOT"
+                print(f"    [{tag}] @{cum_time:.3f}h")
             else:
-                print(f"    → {step['grid']}  "
-                      f"(到达 {step['arrival_time']:.4f}h, "
-                      f"换电 {step['y_swapped']} 块)")
-        print(f"\n  汇总:")
-        print(f"    总换电量: {total_swaps}")
-        print(f"    总行驶时间: {total_travel_time:.4f} h")
-        print(f"    总服务时间: {total_service_time:.4f} h")
-        print(f"    完工时间: {makespan:.4f} h")
+                grid = step["grid"]
+                cum_time += travel_time[prev_grid][grid]
+                model_u = step["arrival_time"]
+                y_swap = step["y_swapped"]
+                diff = abs(model_u - cum_time)
+                flag = " ⚠" if diff > 0.05 else ""
+                if diff > 0.05:
+                    timing_issues += 1
+                print(f"    →{grid}  cum={cum_time:.3f}h u={model_u:.3f}h "
+                      f"y={y_swap}{flag}")
+                cum_time += swap_time_c * y_swap
+                prev_grid = grid
+
+        if timing_issues > 0:
+            print(f"  ⚠ {timing_issues}处时序偏差>0.05h")
+        else:
+            print(f"  ✓ 时序一致 | 行驶{total_travel_time:.3f}h "
+                  f"服务{total_service_time:.3f}h 完工{makespan:.3f}h")
 
     return result
 
@@ -454,26 +407,16 @@ def _save_results(result, output_dir, verbose=True):
     route = result.get("route", [])
     if not route:
         return
-
-    rows = []
-    for step in route:
-        rows.append({
-            "grid_id": step["grid"],
-            "arrival_time_hrs": step["arrival_time"],
-            "batteries_swapped": step["y_swapped"],
-        })
-
-    df = pd.DataFrame(rows)
+    rows = [{"grid_id": s["grid"], "arrival_time_hrs": s["arrival_time"],
+             "batteries_swapped": s["y_swapped"]} for s in route]
     csv_path = os.path.join(output_dir, f"optimization_route_{time.time()}.csv")
-    df.to_csv(csv_path, index=False)
-
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
     summary = result.get("summary", {})
     if summary:
         summary_path = os.path.join(output_dir, f"optimization_summary_{time.time()}.csv")
         pd.DataFrame([summary]).to_csv(summary_path, index=False)
-
     if verbose:
-        print(f"\n  结果已保存至: {output_dir}/")
+        print(f"  结果已保存至: {output_dir}/")
 
 
 # =========================================================================
@@ -488,7 +431,7 @@ if __name__ == "__main__":
         vehicle_speed_kmh=30.0,
         C_max=20,
         T_total=1.0,
-        P_intervals=DEFAULT_P_INTERVALS,   # 5
+        P_intervals=DEFAULT_P_INTERVALS,   # 10 (0.1h分辨率)
         y_levels=DEFAULT_Y_LEVELS,         # 1~10 (原 1~20)
         swap_time_c=0.02,
         BigM=200.0,

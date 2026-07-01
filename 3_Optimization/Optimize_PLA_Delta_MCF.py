@@ -17,12 +17,17 @@ def optimize_evrp_with_pla_delta_mcf(
 ):
     """
     Build and solve EVRP with PLA using the Incremental (Delta) Model
-    ** augmented with MCF flow constraints, MTZ fully removed **.
+    ** augmented with MCF flow constraints + Lazy MTZ callback **.
 
     Replaces the ~135K pairwise MTZ big-M constraints (O(N²)) with:
       - MCF flow conservation → valid tour structure + battery accounting
       - TotalRouteTime → single global time budget constraint
       - CycleDeadline → depot return feasibility (O(N))
+      - Lazy MTZ callback → dynamic timing enforcement at MIPSOL:
+        every integer solution is intercepted, its route is traced, and
+        violated arrival-time constraints are injected via cbLazy() on
+        the fly. This guarantees temporal correctness without the
+        "escape to unprotected nodes" flaw of multi-phase approaches.
     This dramatically reduces per-node LP cost while MCF provides
     the structural tightness for the LP relaxation.
 
@@ -42,23 +47,29 @@ def optimize_evrp_with_pla_delta_mcf(
     m = gp.Model("EVRP_PLA_Delta_MCF_NoMTZ")
 
     # ==========================================================================
-    # Solver parameters
+    # Solver parameters (tuned for LazyConstraints=1 — large raw LP at root)
     # ==========================================================================
+    # With LazyConstraints enabled, Gurobi cannot apply aggressive presolve
+    # reductions. The root LP is ~135K rows and must be solved efficiently.
+    # Strategy: Barrier for root LP, no cut loop, short heuristics, then branch.
     m.setParam('MIPGap', 0.05)
     m.setParam('TimeLimit', 1800)
-    m.setParam('Method', 2)              # Barrier — 大LP+退化网络远快于Simplex
-    m.setParam('Crossover', 0)           # 禁用crossover（MIP只需Barrier做LP松弛的边
-                                         # 界值，节点LP用NodeMethod=Dual回退）
-    m.setParam('MIPFocus', 3)            # 专注边界提升（gap由弱BestBd驱动）
-    m.setParam('Heuristics', 0.10)       # 减少启发式时间，省给LP求解
-    m.setParam('Cuts', 0)                # MCF已紧固LP，关闭割平面避免数百轮无效LP重解
-    m.setParam('Symmetry', 0)            # MCF流守恒破坏了对称性，无需额外处理
-    m.setParam('NoRelHeurTime', 30)      # 30s足够找到初始解，节省root时间
+    m.setParam('Method', 2)              # Barrier — 大规模LP远超Simplex效率
+    m.setParam('Crossover', 0)           # 禁用crossover → 省时间，直接进B&B
+    m.setParam('MIPFocus', 0)            # 均衡策略（Warm-Start已提供初始可行解）
+    m.setParam('Heuristics', 0.10)       # 轻量启发式（根节点LP太贵，不宜久留）
+    m.setParam('Cuts', 0)                # ★ 关闭割平面！MCF已紧固LP，割平面循环
+                                         #   每轮重解LP消耗全部时间，得不偿失
+    m.setParam('Symmetry', 0)            # 关闭对称性处理（省时间）
+    m.setParam('NoRelHeurTime', 15)      # 15s启发式（不再占用60s）
     m.setParam('Threads', 8)
-    m.setParam('PreDual', -1)            # auto
-    m.setParam('PrePasses', 1)           # 轻量预求解（MCF约束不需要深度化简）
-    m.setParam('NodeMethod', 2)          # 分支节点用Dual Simplex（可热启动）
-    m.setParam('BarConvTol', 1e-7)       # 适度放宽Barrier收敛（默认1e-8）加速LP
+    m.setParam('PreDual', 0)             # 禁用对偶预求解（LazyConstraints下效果有限）
+    m.setParam('PrePasses', 8)           # 尽力预求解（补偿LazyConstraints的限制）
+    m.setParam('NodeMethod', 1)          # Dual Simplex for nodes（子节点热启动）
+    m.setParam('ImproveStartTime', 0)    # 跳过根节点改善阶段（直接进入B&B分支）
+    m.setParam('OutputFlag', 1)          # 开启Gurobi默认日志，显示原生进度输出
+    m.setParam('LazyConstraints', 1)     # 启用原生延迟约束回调 (MIPSOL cbLazy)
+    m.setParam('BarHomogeneous', 1)      # Barrier同质模型优化（MCF约束高度同质）
 
     # ==========================================================================
     # Adaptive Big-M
@@ -172,6 +183,8 @@ def optimize_evrp_with_pla_delta_mcf(
         v[j].BranchPriority = 10
         for y_val in Y_domain:
             w[j, y_val].BranchPriority = 5
+            for k in K_domain:
+                delta[j, y_val, k].BranchPriority = -1   # 时间离散应由传播确定, 避免分支
 
     # ==========================================================================
     # 2. Objective Function (Delta formulation)
@@ -309,14 +322,26 @@ def optimize_evrp_with_pla_delta_mcf(
         m.addConstr(u[j] == delta_time, name=f"TimeSync_{j}")
 
     # ==========================================================================
-    # 5. Timing Constraints — Lazy MTZ (correctness without LP bloat)
+    # 5. Timing Constraints — Native Lazy Constraint Callback
     # ==========================================================================
     # Pairwise MTZ constraints are NOT added to the initial model.
-    # Instead, they are enforced via a lazy constraint callback:
-    #   - LP relaxation: no MTZ → fast per-node solves
-    #   - Integer solution: callback checks all active arcs for MTZ violation
-    #     and adds only the violated constraints as lazy cuts.
-    # This keeps the LP lightweight while guaranteeing temporal correctness.
+    # Instead, they are enforced via Gurobi's native lazy constraint callback
+    # (MIPSOL), running within a SINGLE continuous branch-and-bound tree:
+    #
+    #   - LP relaxation: no MTZ → fast per-node simplex solves
+    #   - MIPSOL callback: intercepts EVERY integer solution, traces the actual
+    #     route, and validates timing along each active arc. If any arc violates
+    #     the physical arrival-time propagation, the corresponding MTZ cut is
+    #     injected via cbLazy() — instantly rejecting the invalid solution.
+    #   - This guarantees: no feasible integer solution can ever escape with
+    #     physically impossible timing (e.g., u[j]=0 for all nodes), because
+    #     the callback sees and rejects EVERY candidate.
+    #
+    # Key advantages over the previous multi-phase approach:
+    #   (a) Single B&B tree — no restart overhead, no fragmented time budget
+    #   (b) No "escape" to unprotected nodes — every solution is validated
+    #   (c) Minimal constraint addition — only violated arcs get MTZ, not all
+    #       O(N²) pairs upfront
     #
     # Static constraints retained:
     #   (a) StartTimeDepot / StartBatteryDepot
@@ -341,14 +366,12 @@ def optimize_evrp_with_pla_delta_mcf(
                 name=f"CycleDeadline_{i}"
             )
 
-    # ---- Lazy MTZ: pre-compute arc list (excluding depot as destination) ----
-    _lazy_arcs = [(i, j) for (i, j) in arc_list if j != depot]
-    _lazy_arc_count = len(_lazy_arcs)
-    _mtz_added = set()  # track which arcs already have MTZ added as lazy
+    # ---- Lazy MTZ tracking set (populated dynamically inside MIPSOL callback) ----
+    _mtz_added = set()
 
     if progress_tracker is None:
-        print(f"  [Timing] MTZ → Lazy (0 初始行, 仅在整数解违反时添加, "
-              f"候选弧段 {_lazy_arc_count})")
+        print(f"  [Timing] MTZ → 原生延迟约束回调 (MIPSOL), "
+              f"单一B&B树内动态拦截")
         print(f"  [Timing] 静态约束: TotalRouteTime (1行) + "
               f"CycleDeadline (~{len(grids)}行)")
 
@@ -507,48 +530,206 @@ def optimize_evrp_with_pla_delta_mcf(
             print("  [Warm-Start] 贪心启发式未能构造可行解, 跳过")
 
     # ==========================================================================
-    # 6. Solve (with Lazy MTZ callback)
+    # 6. Lazy Constraint Callback — Dynamic MTZ Enforcement in Single B&B Tree
     # ==========================================================================
-    m.setParam('LazyConstraints', 1)  # enable lazy constraint addition
+    #
+    # Architecture: instead of multiple .optimize() calls with static MTZ
+    # injection between them, we use Gurobi's native MIPSOL lazy constraint
+    # callback. The solver runs a SINGLE continuous branch-and-bound tree.
+    # Every time it discovers an integer-feasible solution, the callback:
+    #
+    #   1. Traces the actual vehicle route from the binary x[i,j] values
+    #   2. Validates temporal consistency along every active arc
+    #   3. If violated → injects the MTZ cut via cbLazy() → rejects solution
+    #   4. If valid → accepts as incumbent → solver continues
+    #
+    # This guarantees NO integer solution can escape with physically impossible
+    # timing (e.g., all u[j]=0), because every candidate is intercepted at
+    # MIPSOL before it can become the final answer.
 
-    def _combined_callback(model, where):
-        """Combined callback: progress tracking + lazy MTZ enforcement."""
-        # --- progress tracking ---
-        if progress_tracker is not None and where == GRB.Callback.MIP:
-            runtime = model.cbGet(GRB.Callback.RUNTIME)
-            best_obj = model.cbGet(GRB.Callback.MIP_OBJBST)
-            best_bound = model.cbGet(GRB.Callback.MIP_OBJBND)
-            node_count = model.cbGet(GRB.Callback.MIP_NODCNT)
-            progress_tracker.record(runtime, best_obj, best_bound, node_count)
+    import time as _time
+    _solve_start = _time.perf_counter()
+    _total_time_budget = 1800.0
+    _last_log_time = [0.0]          # mutable for closure
+    _lazy_callback_count = [0]      # mutable: total MIPSOL invocations
+    _lazy_mtz_count = [0]           # mutable: cumulative MTZ cuts added via cbLazy
 
-        # --- lazy MTZ: check every integer solution ---
-        if where == GRB.Callback.MIPSOL:
-            added = 0
-            for (i, j) in _lazy_arcs:
-                if (i, j) in _mtz_added:
-                    continue  # MTZ already added for this arc
-                # Only check arcs that are active in this integer solution
-                x_val = model.cbGetSolution(x[i, j])
-                if x_val < 0.5:
+    # ==========================================================================
+    # 6a. Store references on model for callback access
+    # ==========================================================================
+    # Gurobi callbacks receive only (model, where); all data must be reachable
+    # via model attributes or closure variables. We attach the lookup tables
+    # and parameters to the model object so the callback can access them.
+    m._travel_time = travel_time
+    m._swap_time_c = swap_time_c
+    m._BigM_mtz = BigM_mtz
+    m._mtz_added = _mtz_added
+    m._grids = grids
+    m._nodes = nodes
+    m._feasible_arcs = feasible_arcs
+    m._depot = depot
+    m._lazy_callback_count = _lazy_callback_count
+    m._lazy_mtz_count = _lazy_mtz_count
+    m._progress_tracker = progress_tracker
+    m._last_log_time = _last_log_time
+
+    # ==========================================================================
+    # 6b. Lazy MTZ enforcement — fired at every integer feasible solution
+    # ==========================================================================
+    def _lazy_mtz_enforce(model, where):
+        """MIPSOL callback: validate timing on the current integer route.
+
+        Traces the actual route from the depot through visited grids and back,
+        checking the physical arrival-time propagation u[j] >= u[i] + service[i]
+        + travel[i][j] along each active arc (x[i,j] ≈ 1).
+
+        If any arc violates this, injects the corresponding MTZ constraint
+        via cbLazy() — which permanently adds it to the model and rejects
+        the current solution. The solver then continues the B&B tree.
+
+        NOTE: All Gurobi variable objects (x, v, u, y) are accessed via
+        Python closure from the outer optimize_evrp_with_pla_delta_mcf scope.
+        Data lookup tables (travel_time, swap_time_c, BigM_mtz, etc.) are
+        stored on model._* attributes.
+        """
+        _lazy_callback_count[0] += 1
+
+        # --- Step 1: identify visited nodes from binary v[j] ---
+        visited = []
+        for j in grids:
+            if model.cbGetSolution(v[j]) > 0.5:
+                visited.append(j)
+
+        if not visited:
+            return  # empty route is valid (no swaps, zero utility)
+
+        # --- Step 2: trace the deterministic route ---
+        # At MIPSOL all x[i,j] are binary → route is uniquely defined.
+        route = [depot]
+        current = depot
+
+        _feasible = model._feasible_arcs
+        MAX_STEPS = len(visited) + 5
+        for _ in range(MAX_STEPS):
+            found = False
+            candidates = list(visited) + [depot]
+            for nxt in candidates:
+                if nxt == current:
                     continue
-                # Check MTZ violation
-                u_i = model.cbGetSolution(u[i])
-                u_j = model.cbGetSolution(u[j])
-                y_i = model.cbGetSolution(y[i])
-                required = u_i + swap_time_c * y_i + travel_time[i][j]
-                if u_j < required - 1e-6:
-                    # Add lazy MTZ constraint for this arc
-                    model.cbLazy(
-                        u[j] >= u[i] + swap_time_c * y[i] + travel_time[i][j]
-                               - BigM_mtz * (1 - x[i, j])
-                    )
-                    _mtz_added.add((i, j))
-                    added += 1
-            if added > 0 and progress_tracker is None:
-                print(f"  [Lazy MTZ] 本轮添加 {added} 条时序约束 "
-                      f"(累计 {len(_mtz_added)})")
+                if (current, nxt) not in _feasible:
+                    continue
+                # x is the gurobipy tupledict captured via closure
+                if model.cbGetSolution(x[current, nxt]) > 0.5:
+                    route.append(nxt)
+                    current = nxt
+                    found = True
+                    break
+            if not found:
+                break                   # chain broken — shouldn't happen at MIPSOL
+            if current == depot:
+                break                   # returned to depot
+
+        # --- Step 3: validate timing along each arc of the traced route ---
+        # For each arc (i→j) where j != depot, enforce:
+        #   u[j] >= u[i] + swap_time_c * y[i] + travel_time[i][j]
+        # The depot has u=0, y=0 by static constraints, so the formula
+        # works uniformly for depot→first_grid arcs too.
+        cuts_added = 0
+        _tol = 1e-5                     # match Gurobi IntFeasTol default
+        _mtz_set = model._mtz_added
+        _swap = model._swap_time_c
+        _tt = model._travel_time
+        _bigM = model._BigM_mtz
+
+        for idx in range(len(route) - 1):
+            i = route[idx]
+            j = route[idx + 1]
+
+            if j == depot:
+                continue                # i→depot: covered by CycleDeadline statically
+
+            # Skip if MTZ already exists for this arc
+            if (i, j) in _mtz_set:
+                continue
+
+            # u, y are gurobipy tupledicts captured via closure
+            ui = model.cbGetSolution(u[i])
+            uj = model.cbGetSolution(u[j])
+            yi = model.cbGetSolution(y[i])
+
+            rhs = ui + _swap * yi + _tt[i][j]
+            if uj < rhs - _tol:
+                # --- VIOLATION: inject MTZ lazy constraint via cbLazy ---
+                # The constraint uses the big-M form so it's slack when
+                # x[i,j]=0 and binding only when the arc is active.
+                model.cbLazy(
+                    u[j] >= u[i] + _swap * y[i] + _tt[i][j]
+                    - _bigM * (1 - x[i, j])
+                )
+                _mtz_set.add((i, j))
+                cuts_added += 1
+
+        if cuts_added > 0:
+            _lazy_mtz_count[0] += cuts_added
+
+    # ==========================================================================
+    # 6c. Merged callback — progress logging (MIP) + lazy MTZ (MIPSOL)
+    # ==========================================================================
+    def _combined_callback(model, where):
+        if where == GRB.Callback.MIP:
+            # ---- Progress logging (every 30s) ----
+            runtime = model.cbGet(GRB.Callback.RUNTIME)
+            if runtime - _last_log_time[0] < 30:
+                return
+            _last_log_time[0] = runtime
+            obj = model.cbGet(GRB.Callback.MIP_OBJBST)
+            bnd = model.cbGet(GRB.Callback.MIP_OBJBND)
+            nodes_cnt = int(model.cbGet(GRB.Callback.MIP_NODCNT))
+            gap = abs(bnd - obj) / (abs(obj) + 1e-9) * 100
+            lazy_info = (f" lazy={_lazy_mtz_count[0]}"
+                         if _lazy_mtz_count[0] > 0 else "")
+            if progress_tracker is None:
+                print(f"  [B&B] obj={obj:.4f}  bnd={bnd:.4f}  "
+                      f"gap={gap:.1f}%  nodes={nodes_cnt}{lazy_info}  "
+                      f"t={runtime:.0f}s")
+            if progress_tracker is not None:
+                progress_tracker.record(runtime, obj, bnd, nodes_cnt)
+
+        elif where == GRB.Callback.MIPSOL:
+            _lazy_mtz_enforce(model, where)
+
+    # ==========================================================================
+    # 6d. Single-pass solve with lazy MTZ callback
+    # ==========================================================================
+    m.setParam('TimeLimit', _total_time_budget)
+    if progress_tracker is None:
+        print(f"  [Solve] 单一B&B树 + MIPSOL延迟约束回调, "
+              f"时限{_total_time_budget:.0f}s "
+              f"(NoRel=60s Improve=60s P={len(tau_list)-1})")
 
     m.optimize(_combined_callback)
+
+    # ==========================================================================
+    # 7. Final summary
+    # ==========================================================================
+    _elapsed = _time.perf_counter() - _solve_start
+    if progress_tracker is None:
+        try:
+            _final_obj = m.ObjVal
+            _final_bnd = m.ObjBound
+            _final_gap = abs(_final_bnd - _final_obj) / (abs(_final_obj) + 1e-9) * 100
+            print(f"  [完成] obj={_final_obj:.4f}  bnd={_final_bnd:.4f}  "
+                  f"gap={_final_gap:.1f}%  "
+                  f"lazy_mtz={_lazy_mtz_count[0]}  "
+                  f"callback_invocations={_lazy_callback_count[0]}  "
+                  f"耗时={_elapsed:.0f}s")
+        except Exception:
+            print(f"  [完成] 耗时={_elapsed:.0f}s  "
+                  f"lazy_mtz={_lazy_mtz_count[0]}  "
+                  f"callbacks={_lazy_callback_count[0]}")
+    else:
+        if progress_tracker is not None:
+            progress_tracker.record(_elapsed, None, None, None)
 
     # Save references for downstream parsing
     m._x = x
