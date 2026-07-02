@@ -14,7 +14,7 @@ def optimize_evrp_with_stgraph(
     progress_tracker=None,
     max_travel_time=0.2,
     y_levels=None,
-    K_neighbors=100
+    K_neighbors=400
 ):
     """
     构建并求解基于时间扩展图 (Space-Time Graph, ST-Graph) 架构的电动汽车路径规划问题 (EVRP)。
