@@ -44,7 +44,7 @@ def optimize_evrp_with_stgraph(
     # STGraph 与 Delta-MCF 的关键区别：无需 LazyConstraints=1，因此 Gurobi 可以正常
     # 进行预求解和割平面生成。参数配置借鉴 Delta-MCF 的调优经验，但保留割平面与启发式
     # 以充分利用完整的 MIP 求解能力。
-    m.setParam('MIPGap', 0.05)
+    m.setParam('MIPGap', 0.01)
     m.setParam('TimeLimit', 1800)
     m.setParam('Method', 2)              # Barrier — 时空图LP松弛规模大，Barrier优势显著
     m.setParam('Crossover', 0)           # 禁用crossover → 省时间，直接进B&B
@@ -269,7 +269,9 @@ def optimize_evrp_with_stgraph(
                 proj_arr = cum_time + tt
                 if proj_arr >= T_total:
                     continue
-                s_idx = min(range(len(tau_list)), key=lambda si: abs(tau_list[si] - proj_arr))
+                s_idx = get_right_rounded_step(proj_arr)
+                if s_idx is None:
+                    continue
                 max_u = max((Omega[j][yy][s_idx] for yy in Y_domain if cum_swaps + yy <= C_max), default=0.0)
                 if max_u > 0:
                     candidates.append((max_u / max(tt, 0.001), j, proj_arr, tt))
@@ -279,7 +281,9 @@ def optimize_evrp_with_stgraph(
             candidates.sort(reverse=True, key=lambda tup: tup[0])
             _, best_j, proj_arr, tt = candidates[0]
 
-            s_idx = min(range(len(tau_list)), key=lambda si: abs(tau_list[si] - proj_arr))
+            s_idx = get_right_rounded_step(proj_arr)
+            if s_idx is None:
+                continue
             best_y = max(((yy, Omega[best_j][yy][s_idx]) for yy in Y_domain if cum_swaps + yy <= C_max),
                          key=lambda p: p[1], default=(min(Y_domain), 0))[0]
 
@@ -353,10 +357,11 @@ def optimize_evrp_with_stgraph(
             if j_key in _v_by_str: _v_by_str[j_key].Start = 1.0
             if j_key in _y_by_str: _y_by_str[j_key].Start = swap_at[j_node]
             
-            # 时间变量 u 完美锚定离散步真实物理时间
+            # 时间变量 u 完美锚定离散步真实物理时间（右取整对齐ST-Graph语义）
             uj_proj = arrival[j_node]
-            uj_s_idx = min(range(len(tau_list)), key=lambda si: abs(tau_list[si] - uj_proj))
-            if j_key in _u_by_str: _u_by_str[j_key].Start = tau_list[uj_s_idx]
+            uj_s_idx = get_right_rounded_step(uj_proj)
+            if uj_s_idx is not None and j_key in _u_by_str:
+                _u_by_str[j_key].Start = tau_list[uj_s_idx]
 
         if progress_tracker is None:
             print(f"  [Warm-Start STGraph] 成功注入时空初始网络，联锁激活有向流弧段: {st_arcs_activated} 条")
