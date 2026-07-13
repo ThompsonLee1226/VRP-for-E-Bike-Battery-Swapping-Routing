@@ -276,9 +276,6 @@ def run_optimization_pipeline(
     # 采集解质量与剪枝指标
     collector.record_solution(result)
 
-    os.makedirs(output_dir, exist_ok=True)
-    _save_results(result, output_dir, verbose=verbose)
-
     # 统一实验指标导出 (始终执行, 确保结果落盘)
     export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
 
@@ -495,24 +492,6 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
             print(f"  ✓ 时空图时序一阶偏序审计通过 | 行驶净耗时 {total_travel_time:.3f}h | 换电净耗时 {total_service_time:.3f}h | 周期总长 {makespan:.3f}h")
 
     return result
-
-
-def _save_results(result, output_dir, verbose=True):
-    """将解码生成的一维标准化业务表格固化并写入 CSV 文件。"""
-    route = result.get("route", [])
-    if not route:
-        return
-    rows = [{"grid_id": s["grid"], "arrival_time_hrs": s["arrival_time"],
-             "batteries_swapped": s["y_swapped"]} for s in route]
-    csv_path = os.path.join(output_dir, f"optimization_route_stgraph_{time.time()}.csv")
-    pd.DataFrame(rows).to_csv(csv_path, index=False)
-    
-    summary = result.get("summary", {})
-    if summary:
-        summary_path = os.path.join(output_dir, f"optimization_summary_stgraph_{time.time()}.csv")
-        pd.DataFrame([summary]).to_csv(summary_path, index=False)
-    if verbose:
-        print(f"  [数据中心] 业务报告及动作流表格已成功落盘至路径: {output_dir}/")
 
 
 # =========================================================================

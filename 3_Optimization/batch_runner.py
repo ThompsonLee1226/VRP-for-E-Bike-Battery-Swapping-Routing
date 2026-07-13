@@ -426,7 +426,7 @@ def _print_comparison_table(results: list[dict]):
         soon_r = r.get("soon_ratio", 0) or 0
         nvars = r.get("num_vars", 0) or 0
         nconstrs = r.get("num_constrs", 0) or 0
-        bb = r.get("bb_nodes", 0) or 0
+        bb = int(r.get("bb_nodes", 0) or 0)
 
         gap_str = f"{gap:.2f}" if gap != float('inf') else "N/A"
         print(f"{eid:5s} {status:12s} {obj:10.4f} {cpu:8.1f} "

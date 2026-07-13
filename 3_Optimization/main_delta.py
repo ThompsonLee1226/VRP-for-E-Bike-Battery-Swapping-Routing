@@ -360,10 +360,6 @@ def run_optimization_pipeline(
     # 采集解质量指标
     collector.record_solution(result)
 
-    # 保存结果
-    os.makedirs(output_dir, exist_ok=True)
-    _save_results(result, output_dir, verbose=verbose)
-
     # 统一实验指标导出 (始终执行, 确保结果落盘)
     export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
 
@@ -564,33 +560,6 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 
     return result
 
-
-def _save_results(result, output_dir, verbose=True):
-    """将优化结果保存为 CSV 文件。"""
-    route = result.get("route", [])
-    if not route:
-        return
-
-    rows = []
-    for step in route:
-        rows.append({
-            "grid_id": step["grid"],
-            "arrival_time_hrs": step["arrival_time"],
-            "batteries_swapped": step["y_swapped"],
-        })
-
-    df = pd.DataFrame(rows)
-    csv_path = os.path.join(output_dir, f"optimization_route_{time.time()}.csv")
-    df.to_csv(csv_path, index=False)
-
-    # 保存汇总
-    summary = result.get("summary", {})
-    if summary:
-        summary_path = os.path.join(output_dir, f"optimization_summary_{time.time()}.csv")
-        pd.DataFrame([summary]).to_csv(summary_path, index=False)
-
-    if verbose:
-        print(f"\n  结果已保存至: {output_dir}/")
 
 
 # =========================================================================
