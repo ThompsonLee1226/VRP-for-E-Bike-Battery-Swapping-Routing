@@ -11,7 +11,7 @@
 所有实验组共用相同的:
   - 数据文件路径
   - 硬件环境
-  - TimeLimit = 1800s
+  - TimeLimit = 1200s
   - C_max = 20, T_total = 1.0h, swap_time_c = 0.02h, speed = 30km/h
 
 =============================================================================
@@ -38,7 +38,7 @@ SHARED_PARAMS = {
     "swap_time_c": 0.02,
     "max_travel_time": 0.2,
     "y_levels": list(range(1, 11)),      # 离散换电量 1~10
-    "time_limit_s": 1800,                # 统一 30 分钟时限
+    "time_limit_s": 1200,                # 统一 20 分钟时限
 }
 
 
@@ -306,7 +306,7 @@ ALIGNED_PARAMS = {
     # 统一使用 P=10, MIPGap=0.05, TimeLimit=1800
     "P_intervals": 10,
     "mip_gap": 0.05,
-    "time_limit_s": 1800,
+    "time_limit_s": 1200,
 }
 
 

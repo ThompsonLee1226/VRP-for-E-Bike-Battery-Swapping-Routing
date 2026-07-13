@@ -709,6 +709,17 @@ def optimize_evrp_with_pla_delta_mcf(
 
     m.optimize(_combined_callback)
 
+    # === 兜底: 确保最后一帧被记录 (回调有30s节流, 最终bound可能急剧收敛) ===
+    if progress_tracker is not None:
+        try:
+            final_runtime = m.Runtime
+            final_obj = m.ObjVal if m.SolCount > 0 else None
+            final_bnd = m.ObjBound
+            final_nodes = int(m.NodeCount)
+            progress_tracker.record(final_runtime, final_obj, final_bnd, final_nodes)
+        except Exception:
+            pass
+
     # ==========================================================================
     # 7. Final summary
     # ==========================================================================

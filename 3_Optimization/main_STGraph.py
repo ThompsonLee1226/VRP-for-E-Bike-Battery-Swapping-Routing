@@ -29,7 +29,7 @@ from experiment_config import get_experiment_config
 # 默认统一参数配置 (与原有 MCF 骨架体系保持高度严谨对齐)
 # =========================================================================
 DEFAULT_DATA_FILE = "3_Optimization\\Grid_Utility_Test.csv"
-DEFAULT_OUTPUT_DIR = "Optimization Result"
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Optimization_Result_Summary")
 DEFAULT_SPEED_KMH = 30.0
 DEFAULT_C_MAX = 20
 DEFAULT_T_TOTAL = 1.0
@@ -279,9 +279,8 @@ def run_optimization_pipeline(
     os.makedirs(output_dir, exist_ok=True)
     _save_results(result, output_dir, verbose=verbose)
 
-    # 统一实验指标导出
-    if verbose and progress is not None:
-        export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
+    # 统一实验指标导出 (始终执行, 确保结果落盘)
+    export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
 
     # 指针回传绑定
     result["model"] = model

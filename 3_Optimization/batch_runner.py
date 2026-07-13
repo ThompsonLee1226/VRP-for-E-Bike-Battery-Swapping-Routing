@@ -45,7 +45,7 @@ from experiment_utils import merge_batch_results
 # 默认运行配置
 # =============================================================================
 DEFAULT_DATA_FILE = os.path.join(_current_dir, "Grid_Utility_Test.csv")
-DEFAULT_OUTPUT_DIR = os.path.join(_current_dir, "..", "..", "Optimization Result")
+DEFAULT_OUTPUT_DIR = os.path.join(_current_dir, "Optimization_Result_Summary")
 DEFAULT_OUTPUT_DIR = os.path.normpath(DEFAULT_OUTPUT_DIR)
 
 # 默认运行全部实验组 (不包括可选的 M2c)

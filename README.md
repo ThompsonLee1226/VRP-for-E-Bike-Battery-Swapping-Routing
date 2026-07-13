@@ -536,9 +536,9 @@ gurobipy.GurobiError: No Gurobi license found
 
 **解决**: 申请 [Academic License](https://www.gurobi.com/academia/academic-program-and-licenses/) 或检查 License 文件路径。
 
-### Q2: 模型运行超时 (30 min)
+### Q2: 模型运行超时 (20 min)
 
-默认时限为 1800s。对于大规模实例，可在配置中调整：
+默认时限为 1200s。对于大规模实例，可在配置中调整：
 
 ```python
 # experiment_config.py → SHARED_PARAMS
