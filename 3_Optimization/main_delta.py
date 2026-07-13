@@ -17,6 +17,13 @@ from Pre_Process import (
     calculate_travel_time_matrix,
 )
 
+# 统一实验工具
+from experiment_utils import (
+    GurobiProgressTracker, MetricsCollector,
+    export_experiment_result, compute_utility_split,
+)
+from experiment_config import get_experiment_config
+
 # =========================================================================
 # 默认参数配置
 # =========================================================================
@@ -30,32 +37,6 @@ DEFAULT_SWAP_TIME_C = 0.02                            # 单块电池换电服务
 DEFAULT_BIG_M = 1.5                                   # Big-M 常数 (现由求解器内部自适应收紧, 此值仅作后备)
 DEFAULT_MAX_TRAVEL_TIME = 0.2                         # 弧段裁剪阈值 (小时) — Tier-3: 0.4→0.2 收紧弧段
 DEFAULT_Y_LEVELS = list(range(1, 11))               # 离散换电量: 1~10 (原 1~20, 减半)
-
-# =========================================================================
-# Gurobi 求解进度追踪器
-# =========================================================================
-class GurobiProgressTracker:
-    """在回调中记录 Gurobi 的求解进度。"""
-
-    def __init__(self):
-        self.records = []  # 每条: (runtime, best_obj, best_bound, node_count)
-
-    def record(self, runtime, best_obj, best_bound, node_count):
-        self.records.append((runtime, best_obj, best_bound, node_count))
-
-    def summary(self):
-        if not self.records:
-            return "No progress recorded."
-        last = self.records[-1]
-        gap = abs(last[2] - last[1]) / (abs(last[1]) + 1e-9) * 100
-        return (
-            f"Runtime: {last[0]:.1f}s | "
-            f"BestObj: {last[1]:.4f} | "
-            f"BestBound: {last[2]:.4f} | "
-            f"Gap: {gap:.2f}% | "
-            f"Nodes: {last[3]}"
-        )
-
 
 # =========================================================================
 # Geo-Fencing 优化 1: 零效用节点过滤
@@ -169,31 +150,35 @@ def run_optimization_pipeline(
     max_travel_time=DEFAULT_MAX_TRAVEL_TIME,
     output_dir=DEFAULT_OUTPUT_DIR,
     verbose=True,
+    # === 实验元信息 ===
+    experiment_id="M4",
+    instance_name="default",
+    geo_fencing=True,
 ):
     """
     一站式执行 "预测 → 预处理 → 效用矩阵 → Geo-Fencing 剪枝 → PLA 优化" 完整管线。
 
-    参数:
-    - data_file: CSV 数据文件路径
-    - target_datetime: 目标预测时间点
-    - depot_lat, depot_lon: depot 经纬度 (None 则自动取所有网格质心)
-    - vehicle_speed_kmh: 车辆恒定行驶速度 (km/h)
-    - C_max: 车载电池最大容量
-    - T_total: 规划周期总时长 (小时)
-    - P_intervals: PLA 分段逼近数
-    - swap_time_c: 单块电池换电服务时间 (小时)
-    - BigM: MTZ 约束中的大 M 常数
-    - max_travel_time: 弧段裁剪阈值 (小时)。旅行时间 > max_travel_time 的弧不创建变量
-    - output_dir: 结果输出目录
-    - verbose: 是否打印详细日志
-
     返回:
-    - result: dict, 包含 model, grids, travel_time, Omega, tau_list, snapshot_df 等
+    - result: dict, 包含 model, grids, travel_time, Omega, tau_list, snapshot_df, collector 等
     """
+    # 初始化全维度指标采集器
+    collector = MetricsCollector(
+        experiment_id=experiment_id,
+        instance_name=instance_name,
+        config={
+            "geo_fencing": geo_fencing,
+            "P_intervals": P_intervals,
+            "C_max": C_max,
+            "T_total": T_total,
+            "model_type": "Delta-PLA",
+        }
+    )
+
     # -----------------------------------------------------------------
     # Step 1: 数据加载与预处理
     # -----------------------------------------------------------------
     if verbose:
+        print(f"[{experiment_id}] Delta-PLA Pipeline | P={P_intervals} | Geo-Fence={'✓' if geo_fencing else '✗'}")
         print("=" * 60)
         print("Step 1/6: 加载数据与预处理")
         print("=" * 60)
@@ -273,13 +258,23 @@ def run_optimization_pipeline(
         print("Step 4/6: Geo-Fencing 空间剪枝")
         print("=" * 60)
 
-    # 4a. 零效用节点过滤
-    active_grids, Omega, active_params, active_coords, removed_zeros = \
-        filter_zero_utility_grids(grids, Omega, grid_params, grid_coords)
+    # 4a. 零效用节点过滤 (条件执行)
+    if geo_fencing:
+        active_grids, Omega, active_params, active_coords, removed_zeros = \
+            filter_zero_utility_grids(grids, Omega, grid_params, grid_coords)
+    else:
+        active_grids = list(grids)
+        active_Omega = Omega
+        active_params = dict(grid_params)
+        active_coords = dict(grid_coords)
+        removed_zeros = 0
 
     if verbose:
-        print(f"  [节点过滤] 零效用网格剔除: {removed_zeros} / {original_grid_count}")
-        print(f"              活跃网格保留: {len(active_grids)}")
+        if geo_fencing:
+            print(f"  [节点过滤] 零效用网格剔除: {removed_zeros} / {original_grid_count}")
+            print(f"              活跃网格保留: {len(active_grids)}")
+        else:
+            print(f"  [节点过滤] 消融模式: 保留全部 {original_grid_count} 个网格 (零效用过滤已跳过)")
 
     # 4b. 为活跃网格重建旅行时间矩阵 (与 depot)
     travel_time = build_full_travel_time_matrix(
@@ -296,16 +291,24 @@ def run_optimization_pipeline(
         print(f"  [边长裁剪] 活跃弧段: {feasible_arcs_count} / ~{total_possible} "
               f"({100*feasible_arcs_count/max(1,total_possible):.1f}%)")
 
+    collector.original_grid_count = original_grid_count
+    collector.active_grid_count = len(active_grids)
+    collector.removed_zero_utility = removed_zeros
+    collector.feasible_arc_count = feasible_arcs_count
+    collector.total_possible_arc_count = total_possible
+
     # 若无活跃网格, 提前退出
     if not active_grids:
         if verbose:
             print("\n  [终止] 所有网格均无正效用, 无需调度。")
+        collector.solve_status = "SKIPPED"
         return {
             "model": None, "grids": [], "travel_time": travel_time,
             "Omega": Omega, "tau_list": tau_list, "snapshot_df": snapshot_df,
             "grid_params": active_params, "elapsed_seconds": 0.0,
             "status": "SKIPPED — all grids zero-utility",
             "objective": 0.0, "route": [], "summary": {},
+            "collector": collector,
         }
 
     # -----------------------------------------------------------------
@@ -316,7 +319,7 @@ def run_optimization_pipeline(
         print("Step 5/6: 执行 Gurobi PLA-MIP 求解 (增量 Delta 模型)")
         print("=" * 60)
 
-    progress = GurobiProgressTracker() if verbose else None
+    progress = GurobiProgressTracker(label=experiment_id) if verbose else None
 
     t_start = time.perf_counter()
     model = optimize_evrp_with_pla_delta(
@@ -334,6 +337,9 @@ def run_optimization_pipeline(
     )
     t_elapsed = time.perf_counter() - t_start
 
+    # 采集求解效率指标
+    collector.record_solve(progress, t_elapsed, model)
+
     if verbose:
         print(f"\n  求解耗时: {t_elapsed:.1f} 秒")
         print(f"  求解状态: {model.Status}")
@@ -348,11 +354,19 @@ def run_optimization_pipeline(
         print("Step 6/6: 结果解析")
         print("=" * 60)
 
-    result = _parse_solution(model, active_grids, travel_time, swap_time_c, verbose=verbose)
+    result = _parse_solution(model, active_grids, travel_time, swap_time_c,
+                             grid_params=active_params, T_total=T_total, verbose=verbose)
+
+    # 采集解质量指标
+    collector.record_solution(result)
 
     # 保存结果
     os.makedirs(output_dir, exist_ok=True)
     _save_results(result, output_dir, verbose=verbose)
+
+    # 统一实验指标导出
+    if verbose and progress is not None:
+        export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
 
     result["model"] = model
     result["grids"] = active_grids
@@ -362,6 +376,7 @@ def run_optimization_pipeline(
     result["snapshot_df"] = snapshot_df
     result["grid_params"] = active_params
     result["elapsed_seconds"] = t_elapsed
+    result["collector"] = collector
     result["pruning_stats"] = {
         "original_grids": original_grid_count,
         "active_grids": len(active_grids),
@@ -369,6 +384,7 @@ def run_optimization_pipeline(
         "total_arcs_possible": total_possible,
         "feasible_arcs": feasible_arcs_count,
         "max_travel_time_h": max_travel_time,
+        "geo_fencing_enabled": geo_fencing,
     }
 
     return result
@@ -377,8 +393,14 @@ def run_optimization_pipeline(
 # =========================================================================
 # 结果解析与保存 (适配稀疏 x)
 # =========================================================================
-def _parse_solution(model, grids, travel_time, swap_time_c, verbose=True):
-    """从优化后的 Gurobi model 中提取可读的路由方案 (兼容稀疏 x)。"""
+def _parse_solution(model, grids, travel_time, swap_time_c,
+                    grid_params=None, T_total=1.0, verbose=True):
+    """从优化后的 Gurobi model 中提取可读的路由方案 (兼容稀疏 x)。
+
+    新增:
+      - grid_params: 用于计算 Soon/Normal 效用分流
+      - T_total: 规划周期长度
+    """
     status_map = {
         GRB.OPTIMAL: "OPTIMAL (全局最优)",
         GRB.SUBOPTIMAL: "SUBOPTIMAL",
@@ -488,6 +510,32 @@ def _parse_solution(model, grids, travel_time, swap_time_c, verbose=True):
     total_service_time = total_swaps * swap_time_c
     makespan = total_travel_time + total_service_time
 
+    # =========================================================================
+    # Soon/Normal 效用分流计算
+    # =========================================================================
+    utility_soon_total = 0.0
+    utility_normal_total = 0.0
+    utility_low_total = 0.0
+
+    if grid_params is not None:
+        for r in result["route"]:
+            g = r.get("grid")
+            if g is None or g == "DEPOT":
+                continue
+            y_swap = r.get("y_swapped", 0)
+            arr_time = r.get("arrival_time", 0.0)
+            if y_swap > 0 and g in grid_params:
+                split = compute_utility_split(
+                    u_j=arr_time, y_j=y_swap,
+                    grid_params=grid_params[g], T_total=T_total,
+                )
+                utility_soon_total += split["soon"]
+                utility_normal_total += split["normal"]
+                utility_low_total += split["low"]
+                r["utility_soon"] = split["soon"]
+                r["utility_normal"] = split["normal"]
+                r["utility_low"] = split["low"]
+
     result["summary"] = {
         "num_visited": len(visited),
         "total_swaps": total_swaps,
@@ -495,6 +543,9 @@ def _parse_solution(model, grids, travel_time, swap_time_c, verbose=True):
         "total_service_time_hrs": total_service_time,
         "makespan_hrs": makespan,
         "route_length": len(route_seq) - 1,
+        "utility_soon": round(utility_soon_total, 6),
+        "utility_normal": round(utility_normal_total, 6),
+        "utility_low": round(utility_low_total, 6),
     }
 
     if verbose:
@@ -561,4 +612,6 @@ if __name__ == "__main__":
         BigM=200.0,
         max_travel_time=DEFAULT_MAX_TRAVEL_TIME,  # 0.2h — 弧段裁剪阈值
         verbose=True,
+        experiment_id="M4",
+        geo_fencing=True,
     )

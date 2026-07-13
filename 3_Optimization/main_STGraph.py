@@ -18,6 +18,13 @@ from Pre_Process import (
     calculate_travel_time_matrix,
 )
 
+# 统一实验工具
+from experiment_utils import (
+    GurobiProgressTracker, MetricsCollector,
+    export_experiment_result, compute_utility_split,
+)
+from experiment_config import get_experiment_config
+
 # =========================================================================
 # 默认统一参数配置 (与原有 MCF 骨架体系保持高度严谨对齐)
 # =========================================================================
@@ -31,31 +38,6 @@ DEFAULT_SWAP_TIME_C = 0.02
 DEFAULT_MAX_TRAVEL_TIME = 0.2
 DEFAULT_K_NEIGHBORS = 50                     # KNN 稠密空间图裁剪决策空间界限
 DEFAULT_Y_LEVELS = list(range(1, 11))        # 离散换电量: 1~10
-
-
-# =========================================================================
-# Gurobi 求解进度追踪器 (精简健壮版)
-# =========================================================================
-class GurobiProgressTracker:
-    """实时捕获、记录并精简输出 B&B 搜索树的收敛边界。"""
-    def __init__(self):
-        self.last = None
-
-    def record(self, runtime, best_obj, best_bound, node_count):
-        self.last = (runtime, best_obj, best_bound, node_count)
-
-    def gap(self):
-        if self.last is None:
-            return float('inf')
-        _, obj, bnd, _ = self.last
-        return abs(bnd - obj) / (abs(obj) + 1e-9) * 100
-
-    def summary(self):
-        if self.last is None:
-            return "无进度记录"
-        runtime, obj, bnd, nodes = self.last
-        return (f"{runtime:.0f}s obj={obj:.4f} bnd={bnd:.4f} "
-                f"gap={self.gap():.1f}% nodes={nodes}")
 
 
 # =========================================================================
@@ -137,14 +119,50 @@ def run_optimization_pipeline(
     K_neighbors=DEFAULT_K_NEIGHBORS,
     output_dir=DEFAULT_OUTPUT_DIR,
     verbose=True,
+    # === 消融实验控制参数 ===
+    geo_fencing=True,          # False → M2a: 关闭零效用网格过滤
+    knn_enabled=True,          # False → M2b: 关闭 KNN 稠密图裁剪
+    # === 实验元信息 ===
+    experiment_id="M1",        # 实验组代号, 用于 MetricsCollector 标注
+    instance_name="default",   # 实例名, 用于输出文件命名
 ):
-    """一站式执行时空图全流程处理管线。"""
+    """一站式执行时空图全流程处理管线。
+
+    消融控制:
+      - geo_fencing=False: 跳过 filter_zero_utility_grids, 保留全部网格
+      - knn_enabled=False:  将 K_neighbors 设为极大值, 保留所有满足
+                             max_travel_time 的弧段
+    """
     _y = y_levels if y_levels is not None else list(range(1, C_max + 1))
+
+    # 初始化全维度指标采集器
+    collector = MetricsCollector(
+        experiment_id=experiment_id,
+        instance_name=instance_name,
+        config={
+            "geo_fencing": geo_fencing,
+            "knn_enabled": knn_enabled,
+            "K_neighbors": K_neighbors if knn_enabled else "unlimited",
+            "P_intervals": P_intervals,
+            "C_max": C_max,
+            "T_total": T_total,
+        }
+    )
+    collector.geo_fencing_enabled = geo_fencing
+    collector.knn_enabled = knn_enabled
+    collector.knn_k_value = K_neighbors if knn_enabled else 0
+
     if verbose:
-        print(f"[预处理] 数据={data_file} | "
+        pruning_info = []
+        if geo_fencing:
+            pruning_info.append("Geo-Fence")
+        if knn_enabled:
+            pruning_info.append(f"KNN(K={K_neighbors})")
+        pruning_str = " + ".join(pruning_info) if pruning_info else "无剪枝(消融模式)"
+        print(f"[{experiment_id}] 数据={data_file} | "
               f"C={C_max} T={T_total} P={P_intervals} "
               f"Y={{{min(_y)}..{max(_y)}}} "
-              f"KNN_K={K_neighbors} | speed={vehicle_speed_kmh}km/h")
+              f"Pruning=[{pruning_str}] | speed={vehicle_speed_kmh}km/h")
 
     # Step 1-2: 原始快照加载与地理坐标解析
     grids, grid_params, snapshot_df = prepare_optimize_inputs(
@@ -173,31 +191,62 @@ def run_optimization_pipeline(
         y_levels=y_levels,
     )
 
-    # Step 4: 空间零收益过滤
-    active_grids, Omega, active_params, active_coords, removed_zeros = \
-        filter_zero_utility_grids(grids, Omega, grid_params, grid_coords)
+    # Step 4: 空间零收益过滤 (条件执行 — 消融实验对照组跳过此步)
+    if geo_fencing:
+        active_grids, Omega, active_params, active_coords, removed_zeros = \
+            filter_zero_utility_grids(grids, Omega, grid_params, grid_coords)
+    else:
+        active_grids = list(grids)
+        active_Omega = Omega
+        active_params = dict(grid_params)
+        active_coords = dict(grid_coords)
+        removed_zeros = 0
 
     # 针对活跃集二次构建高精度耗时图
     travel_time = build_full_travel_time_matrix(
         active_grids, active_coords, depot_lat, depot_lon, vehicle_speed_kmh
     )
 
+    # 记录剪枝统计
+    total_possible_arcs = (len(active_grids) + 1) * len(active_grids)
+    feasible_arcs_count = sum(
+        1 for i in travel_time for j in travel_time[i]
+        if i != j and travel_time[i][j] <= max_travel_time
+    )
+
     if verbose:
-        print(f"  网格剪枝: {original_grid_count}→{len(active_grids)} "
-              f"(成功剔除 {removed_zeros} 个零收益网格)")
+        if geo_fencing:
+            print(f"  [Geo-Fencing ✓] 网格剪枝: {original_grid_count}→{len(active_grids)} "
+                  f"(剔除 {removed_zeros} 个零收益网格)")
+        else:
+            print(f"  [Geo-Fencing ✗] 消融模式: 保留全部 {original_grid_count} 个网格 (零效用过滤已跳过)")
+        print(f"  [弧段统计] 可行弧段: {feasible_arcs_count} / ~{total_possible_arcs} "
+              f"({100*feasible_arcs_count/max(1,total_possible_arcs):.1f}%)")
+
+    collector.original_grid_count = original_grid_count
+    collector.active_grid_count = len(active_grids)
+    collector.removed_zero_utility = removed_zeros
+    collector.feasible_arc_count = feasible_arcs_count
+    collector.total_possible_arc_count = total_possible_arcs
 
     if not active_grids:
         if verbose:
             print("\n  [终止] 全局网格在当前切片下均无正收益效用，取消外派调度。")
+        collector.solve_status = "SKIPPED"
         return {
             "model": None, "grids": [], "travel_time": travel_time,
-            "status": "SKIPPED — all grids zero-utility", "objective": 0.0, "route": []
+            "Omega": Omega, "tau_list": tau_list,
+            "status": "SKIPPED — all grids zero-utility", "objective": 0.0, "route": [],
+            "collector": collector,
         }
 
     # ===== Step 5: 调用时空图底座引擎求解 =====
-    progress = GurobiProgressTracker() if verbose else None
+    # 根据消融设置调整 K_neighbors
+    _effective_K = K_neighbors if knn_enabled else 99999
+    progress = GurobiProgressTracker(label=experiment_id) if verbose else None
     if verbose:
-        print(f"[求解] 启动一体化 Space-Time Graph 网络流图优化底座...")
+        knn_info = f"K={_effective_K}" if knn_enabled else "K=∞ (消融模式)"
+        print(f"[求解] 启动 Space-Time Graph 优化引擎 | KNN={knn_info}...")
 
     t_start = time.perf_counter()
     model = optimize_evrp_with_stgraph(
@@ -211,15 +260,28 @@ def run_optimization_pipeline(
         progress_tracker=progress,
         max_travel_time=max_travel_time,
         y_levels=y_levels,
-        K_neighbors=K_neighbors
+        K_neighbors=_effective_K
     )
     t_elapsed = time.perf_counter() - t_start
 
+    # 采集求解效率指标
+    collector.record_solve(progress, t_elapsed, model)
+
     # ===== Step 6: 高维时空有向流结果解析与落地 =====
-    result = _parse_stgraph_solution(model, active_grids, travel_time, swap_time_c, tau_list, verbose=verbose)
+    result = _parse_stgraph_solution(
+        model, active_grids, travel_time, swap_time_c, tau_list,
+        grid_params=active_params, T_total=T_total, verbose=verbose
+    )
+
+    # 采集解质量与剪枝指标
+    collector.record_solution(result)
 
     os.makedirs(output_dir, exist_ok=True)
     _save_results(result, output_dir, verbose=verbose)
+
+    # 统一实验指标导出
+    if verbose and progress is not None:
+        export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
 
     # 指针回传绑定
     result["model"] = model
@@ -230,6 +292,19 @@ def run_optimization_pipeline(
     result["snapshot_df"] = snapshot_df
     result["grid_params"] = active_params
     result["elapsed_seconds"] = t_elapsed
+    result["collector"] = collector
+    result["pruning_stats"] = {
+        "original_grids": original_grid_count,
+        "active_grids": len(active_grids),
+        "removed_zero_utility": removed_zeros,
+        "total_arcs_possible": total_possible_arcs,
+        "feasible_arcs": feasible_arcs_count,
+        "max_travel_time_h": max_travel_time,
+        "geo_fencing_enabled": geo_fencing,
+        "knn_enabled": knn_enabled,
+        "K_neighbors": K_neighbors if knn_enabled else 0,
+    }
+    result["num_st_arcs"] = len(model._st_arcs) if hasattr(model, '_st_arcs') else 0
 
     return result
 
@@ -237,8 +312,14 @@ def run_optimization_pipeline(
 # =========================================================================
 # 高维时空弧链路 (Arc-Chain) 解码核心算子
 # =========================================================================
-def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list, verbose=True):
-    """从 ST-Graph 模型的时空网络流向一维离散物理动作序列进行严格拓扑映射与时序保真校验。"""
+def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
+                            grid_params=None, T_total=1.0, verbose=True):
+    """从 ST-Graph 模型的时空网络流向一维离散物理动作序列进行严格拓扑映射与时序保真校验。
+
+    新增:
+      - grid_params: 用于在解码后计算 Soon/Normal 效用分流
+      - T_total: 规划周期长度, 传入效用分流函数
+    """
     status_map = {
         GRB.OPTIMAL: "OPTIMAL (全局最优)",
         GRB.SUBOPTIMAL: "SUBOPTIMAL",
@@ -341,6 +422,33 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list, ve
     total_service_time = total_swaps * swap_time_c
     makespan = total_travel_time + total_service_time
 
+    # =========================================================================
+    # Soon/Normal 效用分流计算 (逐节点调用分流函数)
+    # =========================================================================
+    utility_soon_total = 0.0
+    utility_normal_total = 0.0
+    utility_low_total = 0.0
+
+    if grid_params is not None:
+        for r in result["route"]:
+            g = r.get("grid")
+            if g is None or g == "DEPOT":
+                continue
+            y_swap = r.get("y_swapped", 0)
+            arr_time = r.get("arrival_time", 0.0)
+            if y_swap > 0 and g in grid_params:
+                split = compute_utility_split(
+                    u_j=arr_time, y_j=y_swap,
+                    grid_params=grid_params[g], T_total=T_total,
+                )
+                utility_soon_total += split["soon"]
+                utility_normal_total += split["normal"]
+                utility_low_total += split["low"]
+                # 将分流值绑定到每条路由记录
+                r["utility_soon"] = split["soon"]
+                r["utility_normal"] = split["normal"]
+                r["utility_low"] = split["low"]
+
     result["summary"] = {
         "num_visited": len(visited_spatial),
         "total_swaps": total_swaps,
@@ -348,6 +456,10 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list, ve
         "total_service_time_hrs": total_service_time,
         "makespan_hrs": makespan,
         "route_length": len(spatial_seq) - 1,
+        # Soon/Normal 分流
+        "utility_soon": round(utility_soon_total, 6),
+        "utility_normal": round(utility_normal_total, 6),
+        "utility_low": round(utility_low_total, 6),
     }
 
     if verbose and result["route"]:
@@ -422,4 +534,8 @@ if __name__ == "__main__":
         max_travel_time=DEFAULT_MAX_TRAVEL_TIME, # 空间长阻裁剪：0.2h
         K_neighbors=DEFAULT_K_NEIGHBORS,     # 强力空间稀疏化控制
         verbose=True,
+        # 默认以 M1 完整模型运行
+        experiment_id="M1",
+        geo_fencing=True,
+        knn_enabled=True,
     )
