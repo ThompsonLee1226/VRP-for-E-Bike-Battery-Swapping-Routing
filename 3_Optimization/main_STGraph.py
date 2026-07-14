@@ -125,6 +125,7 @@ def run_optimization_pipeline(
     # === 实验元信息 ===
     experiment_id="M1",        # 实验组代号, 用于 MetricsCollector 标注
     instance_name="default",   # 实例名, 用于输出文件命名
+    time_limit_s=1200,         # Gurobi 求解时间上限 (秒)
 ):
     """一站式执行时空图全流程处理管线。
 
@@ -260,7 +261,8 @@ def run_optimization_pipeline(
         progress_tracker=progress,
         max_travel_time=max_travel_time,
         y_levels=y_levels,
-        K_neighbors=_effective_K
+        K_neighbors=_effective_K,
+        time_limit_s=time_limit_s,
     )
     t_elapsed = time.perf_counter() - t_start
 

@@ -4,7 +4,7 @@ A swapping routing problem referring to a fixed region e-bike battery swapping
 # 电动两轮车换电调度路径优化 —— 程序运行手册
 
 > **版本**: v1.0  
-> **作者**: 本科研究项目 — E-Bike Battery Swapping Routing Optimization  
+> **作者**: Mingxiao Li — E-Bike Battery Swapping Routing Optimization  
 > **依赖**: Python 3.8+, Gurobi 10.0+ (需有效 License)
 
 ---
@@ -61,7 +61,7 @@ python -c "import gurobipy; print(gurobipy.gurobi.version())"
 
 ---
 
-##胆小2. 项目结构
+## 2. 项目结构 
 
 ```
 3_Optimization/

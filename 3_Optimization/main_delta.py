@@ -154,6 +154,7 @@ def run_optimization_pipeline(
     experiment_id="M4",
     instance_name="default",
     geo_fencing=True,
+    time_limit_s=1200,
 ):
     """
     一站式执行 "预测 → 预处理 → 效用矩阵 → Geo-Fencing 剪枝 → PLA 优化" 完整管线。
@@ -334,6 +335,7 @@ def run_optimization_pipeline(
         progress_tracker=progress,
         max_travel_time=max_travel_time,
         y_levels=y_levels,
+        time_limit_s=time_limit_s,
     )
     t_elapsed = time.perf_counter() - t_start
 

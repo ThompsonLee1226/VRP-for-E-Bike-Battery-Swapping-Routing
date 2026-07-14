@@ -14,6 +14,7 @@ def optimize_evrp_with_pla_delta(
     progress_tracker=None,
     max_travel_time=0.33,
     y_levels=None,
+    time_limit_s=1200,
 ):
     """
     Build and solve EVRP with PLA using the Incremental (Delta) Model.
@@ -42,7 +43,7 @@ def optimize_evrp_with_pla_delta(
     # Solver parameters (Tier-3 — Delta model tuned)
     # ==========================================================================
     m.setParam('MIPGap', 0.05)
-    m.setParam('TimeLimit', 1800)
+    m.setParam('TimeLimit', time_limit_s)
     m.setParam('Method', 0)              # Primal Simplex (avoid Barrier deadlock)
     m.setParam('Crossover', -1)          # auto
     m.setParam('MIPFocus', 1)            # find feasible solutions

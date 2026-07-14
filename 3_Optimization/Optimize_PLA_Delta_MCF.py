@@ -14,6 +14,7 @@ def optimize_evrp_with_pla_delta_mcf(
     progress_tracker=None,
     max_travel_time=0.33,
     y_levels=None,
+    time_limit_s=1200,
 ):
     """
     Build and solve EVRP with PLA using the Incremental (Delta) Model
@@ -53,7 +54,7 @@ def optimize_evrp_with_pla_delta_mcf(
     # reductions. The root LP is ~135K rows and must be solved efficiently.
     # Strategy: Barrier for root LP, no cut loop, short heuristics, then branch.
     m.setParam('MIPGap', 0.05)
-    m.setParam('TimeLimit', 1800)
+    m.setParam('TimeLimit', time_limit_s)
     m.setParam('Method', 2)              # Barrier — 大规模LP远超Simplex效率
     m.setParam('Crossover', 0)           # 禁用crossover → 省时间，直接进B&B
     m.setParam('MIPFocus', 0)            # 均衡策略（Warm-Start已提供初始可行解）
@@ -549,7 +550,7 @@ def optimize_evrp_with_pla_delta_mcf(
 
     import time as _time
     _solve_start = _time.perf_counter()
-    _total_time_budget = 1800.0
+    _total_time_budget = float(time_limit_s)
     _last_log_time = [0.0]          # mutable for closure
     _lazy_callback_count = [0]      # mutable: total MIPSOL invocations
     _lazy_mtz_count = [0]           # mutable: cumulative MTZ cuts added via cbLazy

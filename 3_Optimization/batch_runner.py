@@ -86,6 +86,7 @@ class BatchRunner:
         if self.use_aligned_params:
             cfg["P_intervals"] = ALIGNED_PARAMS["P_intervals"]
             cfg["mip_gap"] = ALIGNED_PARAMS["mip_gap"]
+            cfg["time_limit_s"] = ALIGNED_PARAMS["time_limit_s"]
 
         params = {
             "data_file": self.data_file,
@@ -103,6 +104,7 @@ class BatchRunner:
             "instance_name": instance_name,
             "geo_fencing": cfg["geo_fencing"],
             "knn_enabled": cfg["knn_enabled"],
+            "time_limit_s": cfg["time_limit_s"],
         }
         params.update(override_kwargs)
 
@@ -135,6 +137,7 @@ class BatchRunner:
         if self.use_aligned_params:
             cfg["P_intervals"] = ALIGNED_PARAMS["P_intervals"]
             cfg["mip_gap"] = ALIGNED_PARAMS["mip_gap"]
+            cfg["time_limit_s"] = ALIGNED_PARAMS["time_limit_s"]
 
         params = {
             "data_file": self.data_file,
@@ -151,6 +154,7 @@ class BatchRunner:
             "experiment_id": experiment_id,
             "instance_name": instance_name,
             "geo_fencing": cfg["geo_fencing"],
+            "time_limit_s": cfg["time_limit_s"],
         }
         params.update(override_kwargs)
 
@@ -183,6 +187,7 @@ class BatchRunner:
         if self.use_aligned_params:
             cfg["P_intervals"] = ALIGNED_PARAMS["P_intervals"]
             cfg["mip_gap"] = ALIGNED_PARAMS["mip_gap"]
+            cfg["time_limit_s"] = ALIGNED_PARAMS["time_limit_s"]
 
         params = {
             "data_file": self.data_file,
@@ -199,6 +204,7 @@ class BatchRunner:
             "experiment_id": experiment_id,
             "instance_name": instance_name,
             "geo_fencing": cfg["geo_fencing"],
+            "time_limit_s": cfg["time_limit_s"],
         }
         params.update(override_kwargs)
 
@@ -231,6 +237,7 @@ class BatchRunner:
         if self.use_aligned_params:
             cfg["P_intervals"] = ALIGNED_PARAMS["P_intervals"]
             cfg["mip_gap"] = ALIGNED_PARAMS["mip_gap"]
+            cfg["time_limit_s"] = ALIGNED_PARAMS["time_limit_s"]
 
         params = {
             "data_file": self.data_file,
@@ -247,6 +254,7 @@ class BatchRunner:
             "experiment_id": experiment_id,
             "instance_name": instance_name,
             "geo_fencing": cfg["geo_fencing"],
+            "time_limit_s": cfg["time_limit_s"],
         }
         params.update(override_kwargs)
 
@@ -506,9 +514,14 @@ def main():
             print(f"  可用选项: {list(EXPERIMENT_GROUPS.keys())}")
             sys.exit(1)
 
+    # 每次运行创建时间戳子文件夹，本次运行全部结果保存于此
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    run_output_dir = os.path.join(args.output, timestamp)
+    os.makedirs(run_output_dir, exist_ok=True)
+
     runner = BatchRunner(
         data_file=args.data,
-        output_dir=args.output,
+        output_dir=run_output_dir,
         verbose=not args.quiet,
         use_aligned_params=args.aligned,
     )

@@ -122,6 +122,7 @@ def run_optimization_pipeline(
     experiment_id="M5",
     instance_name="default",
     geo_fencing=True,
+    time_limit_s=1200,
 ):
     """一站式执行完整管线 (Delta + MCF 版本)。"""
     _y = y_levels if y_levels is not None else list(range(1, C_max + 1))
@@ -235,6 +236,7 @@ def run_optimization_pipeline(
         progress_tracker=progress,
         max_travel_time=max_travel_time,
         y_levels=y_levels,
+        time_limit_s=time_limit_s,
     )
     t_elapsed = time.perf_counter() - t_start
 

@@ -14,7 +14,8 @@ def optimize_evrp_with_stgraph(
     progress_tracker=None,
     max_travel_time=0.2,
     y_levels=None,
-    K_neighbors=400
+    K_neighbors=400,
+    time_limit_s=1200,
 ):
     """
     构建并求解基于时间扩展图 (Space-Time Graph, ST-Graph) 架构的电动汽车路径规划问题 (EVRP)。
@@ -45,7 +46,7 @@ def optimize_evrp_with_stgraph(
     # 进行预求解和割平面生成。参数配置借鉴 Delta-MCF 的调优经验，但保留割平面与启发式
     # 以充分利用完整的 MIP 求解能力。
     m.setParam('MIPGap', 0.01)
-    m.setParam('TimeLimit', 1800)
+    m.setParam('TimeLimit', time_limit_s)
     m.setParam('Method', 2)              # Barrier — 时空图LP松弛规模大，Barrier优势显著
     m.setParam('Crossover', 0)           # 禁用crossover → 省时间，直接进B&B
     m.setParam('MIPFocus', 0)            # 均衡策略（Warm-Start已提供初始可行解）

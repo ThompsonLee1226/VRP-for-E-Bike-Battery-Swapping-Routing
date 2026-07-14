@@ -14,6 +14,7 @@ def optimize_evrp_with_pla(
     progress_tracker=None,
     max_travel_time=0.33,
     y_levels=None,
+    time_limit_s=1200,
 ):
     """
     构建并求解整合了双变量 PLA 的电动汽车路径规划问题 (EVRP)。
@@ -37,7 +38,7 @@ def optimize_evrp_with_pla(
     # 求解器参数 (Tier-3 纠正 — 禁 Barrier 空转 + 回调 Moderate 裁切)
     # ==========================================================================
     m.setParam('MIPGap', 0.05)
-    m.setParam('TimeLimit', 1800)
+    m.setParam('TimeLimit', time_limit_s)
     # 关键修复: 指定 Primal Simplex, 禁掉 Barrier 并发 (Barrier 在 340s 内一步都走不出来)
     m.setParam('Method', 0)              # Primal Simplex (避免 Barrier 空转 340s)
     m.setParam('Crossover', -1)          # 自动
