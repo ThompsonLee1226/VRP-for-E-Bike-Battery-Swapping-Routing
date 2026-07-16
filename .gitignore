@@ -13,6 +13,7 @@ Optimization_Result_Summary
 Validation.py
 
 # Python
+*.__pycache__/
 __pycache__/
 *.py[cod]
 *.pyo
