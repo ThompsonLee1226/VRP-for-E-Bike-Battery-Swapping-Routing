@@ -259,7 +259,9 @@ def optimize_evrp_with_stgraph(
         swap_at = {depot: 0}
 
         current = depot
-        while unvisited:
+        max_iter = len(unvisited) + 5   # 安全上限: 防止死循环
+        while unvisited and max_iter > 0:
+            max_iter -= 1
             candidates = []
             for j in spatial_neighbors[current]:
                 if j == depot:
@@ -284,6 +286,7 @@ def optimize_evrp_with_stgraph(
 
             s_idx = get_right_rounded_step(proj_arr)
             if s_idx is None:
+                unvisited.discard(best_j)   # 跳过该不可行节点, 防止死循环
                 continue
             best_y = max(((yy, Omega[best_j][yy][s_idx]) for yy in Y_domain if cum_swaps + yy <= C_max),
                          key=lambda p: p[1], default=(min(Y_domain), 0))[0]
@@ -303,6 +306,7 @@ def optimize_evrp_with_stgraph(
                         saved = True
                         break
                 if not saved:
+                    unvisited.discard(best_j)  # 跳过该不可返程节点, 防止死循环
                     continue
 
             route_seq.append(best_j)
