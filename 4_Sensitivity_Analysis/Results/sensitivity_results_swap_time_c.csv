@@ -1,0 +1,5 @@
+﻿swap_time_c,status,elapsed_seconds,MIPGap,objective,total_swaps,Time_Gap,num_visited,makespan_hrs
+0.02,OPTIMAL (全局最优),218.54,0.2647,1.031058,20,0.061457,11,0.8621
+0.03,OPTIMAL (全局最优),180.71,0.233,0.907849,19,0.048408,10,0.9093
+0.04,OPTIMAL (全局最优),227.15,0.0,0.694606,13,0.072377,9,0.8933
+0.05,OPTIMAL (全局最优),201.96,0.3453,0.644937,11,0.032031,9,0.9339
