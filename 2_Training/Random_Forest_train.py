@@ -11,9 +11,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Centralized input/output configuration
-TRAIN_FILE = 'battery_swapping_routing_data.csv'
-TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
-TRAINING_SCALE = [20000, 
+TRAIN_FILE = 'battery_swapping_routing_data_train_time70.csv'
+TEST_FILE = 'battery_swapping_routing_data_valid_time30.csv'
+TRAINING_SCALE = [ 
                   None
                   ]
 TRAINING_RESULTS_DIR = 'Training_Results_RF'

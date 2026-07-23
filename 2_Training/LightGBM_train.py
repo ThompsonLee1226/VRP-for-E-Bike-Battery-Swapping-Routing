@@ -13,7 +13,7 @@ warnings.filterwarnings('ignore')
 # Centralized input/output configuration
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
-TRAINING_SCALE = [20000, 
+TRAINING_SCALE = [
                   None
                   ]
 TRAINING_RESULTS_DIR = 'Training_Results_LightGBM'

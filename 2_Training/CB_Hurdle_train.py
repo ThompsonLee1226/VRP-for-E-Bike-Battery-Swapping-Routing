@@ -30,7 +30,7 @@ def cfg_value(name, default):
 
 # Centralized input/output configuration
 TRAIN_FILE = cfg_value('TRAIN_FILE', 'battery_swapping_routing_data_train_time70.csv')
-TEST_FILE = cfg_value('TEST_FILE', 'battery_swapping_routing_test_dataset.csv')
+TEST_FILE = cfg_value('TEST_FILE', 'battery_swapping_routing_data_valid_time30.csv')
 TRAINING_SCALE = cfg_value('TRAINING_SCALE', [100000])
 TRAINING_RESULTS_DIR = cfg_value('HURDLE_TRAINING_RESULTS_DIR', cfg_value('TRAINING_RESULTS_DIR', 'Training_Results_CatBoost_Hurdle'))
 TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', 'training_summary_catboost.csv')

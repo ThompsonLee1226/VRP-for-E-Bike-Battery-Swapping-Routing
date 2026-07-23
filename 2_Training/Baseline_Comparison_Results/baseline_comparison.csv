@@ -1,0 +1,9 @@
+model,model_type,target,learning_rate,depth,l2_leaf_reg,od_wait,num_leaves,min_child_samples,n_estimators,max_depth,min_samples_leaf,best_iteration,valid_poisson,valid_rmse,valid_mae,training_seconds,notes
+CB,CB,rent,0.05,10.0,4.0,30.0,,,,,,187.0,1.0540564352857815,,,,"来自 2_Training/training_summary.csv, run=auto_cb_20260417_112151_070"
+CB,CB,return,0.05,10.0,4.0,30.0,,,,,,116.0,1.1686557602607055,,,,"来自 2_Training/training_summary.csv, run=auto_cb_20260417_112151_070"
+CB Hurdle,CB_Hurdle,rent,0.05,10.0,4.0,30.0,,,,,,89.0,0.985292852721684,,,,"来自 2_Training/training_summary.csv, run=auto_cb_20260420_084231_070"
+CB Hurdle,CB_Hurdle,return,0.05,10.0,4.0,30.0,,,,,,69.0,1.0953141871009122,,,,"来自 2_Training/training_summary.csv, run=auto_cb_20260420_084231_070"
+LightGBM,LGB,rent,0.05,,,,127.0,20.0,,,,45.0,1.2171942176827244,2.212721006288028,1.181332404807311,57.3,"train=546336, valid=136584"
+LightGBM,LGB,return,0.05,,,,127.0,20.0,,,,39.0,1.3636999349396894,2.4492262423945097,1.273107317588928,75.1,"train=546336, valid=136584"
+Random Forest,RF,rent,,,,,,,1000.0,18.0,5.0,,1.0298271378824102,2.1871933760337163,1.082070103456242,21.0,"train=546336, valid=136584"
+Random Forest,RF,return,,,,,,,1000.0,18.0,5.0,,1.1437010337066031,2.3683737077673412,1.1584231317392075,9.7,"train=546336, valid=136584"
