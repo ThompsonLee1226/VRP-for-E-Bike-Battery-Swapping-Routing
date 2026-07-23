@@ -172,11 +172,23 @@ def load_catboost_results(cb_summary_csv: str) -> List[Dict]:
 
 # ── LightGBM 训练 ────────────────────────────────────────────────────────
 
+def _prepare_lgb_data(X: pd.DataFrame) -> pd.DataFrame:
+    """将 h3 转换为 category dtype，与原始 LightGBM_train.py 一致。"""
+    X = X.copy()
+    if 'h3' in X.columns:
+        X['h3'] = X['h3'].astype('category')
+    return X
+
+
 def train_lightgbm(
     X_train, y_train, X_valid, y_valid
 ) -> Tuple[object, Dict]:
     """训练LightGBM（代表性默认配置，单次运行）。"""
     import lightgbm as lgb
+
+    # LightGBM 要求 categorical 列为 category dtype，不能是 object/str
+    X_train = _prepare_lgb_data(X_train)
+    X_valid = _prepare_lgb_data(X_valid)
 
     params = {
         'objective': 'regression',
@@ -225,15 +237,19 @@ def train_lightgbm(
 # ── Random Forest 训练 ────────────────────────────────────────────────────
 
 def train_random_forest(
-    X_train, y_train, X_valid, y_valid
-) -> Tuple[object, Dict]:
-    """训练Random Forest（代表性默认配置，单次运行）。"""
-    # RF需要编码h3
-    h3_map = {val: idx for idx, val in enumerate(X_train['h3'].unique())}
+    X_train, y_train, X_valid, y_valid, h3_mapping: dict = None
+) -> Tuple[object, Dict, dict]:
+    """训练Random Forest（代表性默认配置，单次运行）。
+
+    返回 (model, info, h3_mapping)，其中 h3_mapping 用于测试集编码。
+    """
+    # 构建 h3→int 映射（若未传入则从训练集构建）
+    if h3_mapping is None:
+        h3_mapping = {val: idx for idx, val in enumerate(X_train['h3'].unique())}
 
     def encode(df):
         df = df.copy()
-        df['h3'] = df['h3'].map(h3_map).fillna(-1).astype(np.int32)
+        df['h3'] = df['h3'].map(h3_mapping).fillna(-1).astype(np.int32)
         return df
 
     Xt, Xv = encode(X_train), encode(X_valid)
@@ -262,7 +278,7 @@ def train_random_forest(
         'training_seconds': round(elapsed, 1),
         **{f'valid_{k.lower()}': v for k, v in metrics.items()},
     }
-    return model, info
+    return model, info, h3_mapping
 
 
 # ── 主流程 ────────────────────────────────────────────────────────────────
@@ -299,6 +315,7 @@ def main():
     comparison_rows: List[Dict] = []
     model_predictions: Dict[str, Dict[str, np.ndarray]] = {}  # {model_name: {target: y_pred_array}}
     model_objects: Dict[str, Dict[str, object]] = {}  # {model_name: {target: trained_model}}
+    rf_h3_mapping: Dict[str, dict] = {}  # {target: h3_mapping} — 训练集编码，测试时复用
 
     # ── 2. 读取CatBoost结果 ──
     print("\n[2/5] 读取CatBoost / CB_Hurdle已有结果...")
@@ -336,8 +353,9 @@ def main():
         y_raw = df_train[target].astype(float)
         X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
 
-        model, info = train_random_forest(X_train, y_train, X_valid, y_valid)
+        model, info, h3_map = train_random_forest(X_train, y_train, X_valid, y_valid)
         model_objects.setdefault('RandomForest', {})[target] = model
+        rf_h3_mapping[target] = h3_map
 
         comparison_rows.append({
             'model': 'Random Forest',
@@ -363,21 +381,21 @@ def main():
         y_test = df_test[target].astype(float)
         pred_df[f'{target}_true'] = y_test.values
 
-        # LightGBM
+        # LightGBM (需要 h3 为 category dtype)
         if 'LightGBM' in model_objects:
+            X_test_lgb = _prepare_lgb_data(df_test[FEATURES])
             lgb_pred = np.clip(
                 model_objects['LightGBM'][target].predict(
-                    df_test[FEATURES],
+                    X_test_lgb,
                     num_iteration=model_objects['LightGBM'][target].best_iteration
                 ), 0, None
             )
             pred_df[f'{target}_lgb'] = lgb_pred
 
-        # Random Forest (需要编码h3)
+        # Random Forest (复用训练时的 h3→int 映射，未知值填 -1)
         if 'RandomForest' in model_objects:
             X_test_rf = df_test[FEATURES].copy()
-            h3_map_rf = {val: idx for idx, val in
-                         enumerate(pd.concat([df_train['h3'], df_test['h3']]).unique())}
+            h3_map_rf = rf_h3_mapping.get(target, {})
             X_test_rf['h3'] = X_test_rf['h3'].map(h3_map_rf).fillna(-1).astype(np.int32)
             rf_pred = np.clip(
                 model_objects['RandomForest'][target].predict(X_test_rf), 0, None
