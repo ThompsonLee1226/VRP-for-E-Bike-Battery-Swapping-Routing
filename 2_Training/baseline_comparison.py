@@ -20,11 +20,11 @@
   (B) baseline_test_predictions.csv — 四种架构在测试集上的预测值（含真实值）
 
 用法：
-  python baseline_comparison.py \
+    python 2_Training/baseline_comparison.py \
       --train_csv battery_swapping_routing_data_train_time70.csv \
-      --test_csv swapping_data_test.csv \
-      --cb_summary training_summary.csv \
-      --output_dir Baseline_Comparison_Results
+      --test_csv battery_swapping_routing_data_valid_time30.csv \
+      --cb_summary 2_Training/training_summary.csv \
+      --output_dir 2_Training/Baseline_Comparison_Results
 """
 
 from __future__ import annotations
@@ -283,14 +283,18 @@ def main():
     df_train = pd.read_csv(args.train_csv)
     df_test = pd.read_csv(args.test_csv)
 
-    for df, name in [(df_train, '训练'), (df_test, '测试')]:
+    def preprocess(df: pd.DataFrame, name: str) -> pd.DataFrame:
         cols_to_drop = ['region_code', 'Unnamed: 21']
         df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore', inplace=True)
         if 'h3' in df.columns:
             df['h3'] = df['h3'].astype(str)
         fill_missing_values(df)
-        add_feature_engineering(df)
+        df = add_feature_engineering(df)  # add_feature_engineering 内部有 .copy()，必须接收返回值
         print(f"  {name}集: {df.shape}")
+        return df
+
+    df_train = preprocess(df_train, '训练')
+    df_test = preprocess(df_test, '测试')
 
     comparison_rows: List[Dict] = []
     model_predictions: Dict[str, Dict[str, np.ndarray]] = {}  # {model_name: {target: y_pred_array}}
