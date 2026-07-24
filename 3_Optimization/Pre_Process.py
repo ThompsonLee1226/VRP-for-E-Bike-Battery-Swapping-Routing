@@ -1,7 +1,82 @@
+import os
+import random
+import argparse
 import numpy as np
 import pandas as pd
 
-DEFAULT_TARGET_DATETIME = "2025/10/23 12:00"
+# =============================================================================
+# 日期时间配置 —— 在代码最前面预先声明
+# =============================================================================
+# 默认目标日期时间 (从 prediction_CB_Hurdle.csv 的有效范围中选取)
+# 数据有效范围: 2025/10/24 00:00 ~ 2025/11/10 23:00
+DEFAULT_TARGET_DATETIME = "2025/10/24 12:00"
+DATETIME_RANGE_START = "2025/10/24 00:00"
+DATETIME_RANGE_END   = "2025/11/10 23:00"
+
+# 默认预测数据文件路径 (相对于当前脚本所在目录向上查找)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_PREDICTION_FILE = os.path.normpath(os.path.join(
+    _SCRIPT_DIR, "..", "2_Training", "Baseline_Comparison_Results", "prediction_CB_Hurdle.csv"
+))
+
+
+def list_available_hours(file_path=None, start=None, end=None):
+    """列出 CSV 文件中所有可用的唯一小时时间戳。
+
+    参数:
+        file_path: CSV 文件路径, 默认使用 DEFAULT_PREDICTION_FILE
+        start:     起始时间 (str 或 None), 默认 DATETIME_RANGE_START
+        end:       结束时间 (str 或 None), 默认 DATETIME_RANGE_END
+
+    返回:
+        list[pd.Timestamp]: 排序后的可用小时列表
+    """
+    if file_path is None:
+        file_path = DEFAULT_PREDICTION_FILE
+    if start is None:
+        start = DATETIME_RANGE_START
+    if end is None:
+        end = DATETIME_RANGE_END
+
+    df = pd.read_csv(file_path, usecols=["datetime"])
+    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    hours = df["datetime"].dt.floor("h").dropna().unique()
+    hours = sorted(hours)
+
+    start_ts = pd.Timestamp(start).floor("h")
+    end_ts = pd.Timestamp(end).floor("h")
+    hours_in_range = [h for h in hours if start_ts <= h <= end_ts]
+    return hours_in_range
+
+
+def select_random_datetime(file_path=None, start=None, end=None, seed=None):
+    """从 CSV 文件的指定时间范围内随机选取一个小时的 datetime。
+
+    参数:
+        file_path: CSV 文件路径, 默认使用 DEFAULT_PREDICTION_FILE
+        start:     起始时间 (str 或 None), 默认 DATETIME_RANGE_START
+        end:       结束时间 (str 或 None), 默认 DATETIME_RANGE_END
+        seed:      随机种子 (int 或 None), 用于结果可复现
+
+    返回:
+        str: 格式为 "YYYY/MM/DD HH:00" 的日期时间字符串
+    """
+    if seed is not None:
+        random.seed(seed)
+
+    hours = list_available_hours(file_path=file_path, start=start, end=end)
+    if not hours:
+        raise ValueError(
+            f"No available hours found in range [{start}, {end}] "
+            f"from file: {file_path or DEFAULT_PREDICTION_FILE}"
+        )
+    selected = random.choice(hours)
+    return selected.strftime("%Y/%m/%d %H:%M")
+
+
+# =============================================================================
+# 验证与快照加载
+# =============================================================================
 
 def validate_required_columns(df, required_cols, dataset_name):
     missing = [c for c in required_cols if c not in df.columns]
@@ -32,13 +107,14 @@ def load_prediction_snapshot(file_path, target_datetime=DEFAULT_TARGET_DATETIME)
     snapshot_df = snapshot_df.drop_duplicates(subset=["h3"], keep="last").reset_index(drop=True)
     return snapshot_df
 
+
 def calculate_theta(snapshot_df):
     total_low = snapshot_df["low_power_bike_count"].sum()
     total_soon = snapshot_df["soon_low_power_bike_count"].sum()
     total_normal = snapshot_df["normal_power_bike_count"].sum()
-        
+
     total_all_bikes = total_soon + total_normal
-        
+
     if total_all_bikes > 0:
         # 计算全局比例
         theta_soon_global = float(total_soon / total_all_bikes)
@@ -51,7 +127,7 @@ def build_grid_params_from_snapshot(
     theta_soon_global=None,
     theta_normal_global=None,
 ):
-    """把 12:00 的全节点切片整理成 Optimize / Utility 可直接使用的参数字典。"""
+    """把全节点切片整理成 Optimize / Utility 可直接使用的参数字典。"""
     required_cols = [
         "h3",
         "low_power_bike_count",
@@ -62,7 +138,7 @@ def build_grid_params_from_snapshot(
 
     if theta_soon_global is None or theta_normal_global is None:
         theta_soon_global, theta_normal_global = calculate_theta(snapshot_df)
-    
+
     rent_col = "rent_pred" if "rent_pred" in snapshot_df.columns else "rent"
     return_col = "return_pred" if "return_pred" in snapshot_df.columns else "return"
 
@@ -257,11 +333,109 @@ def build_travel_time_matrix_from_csv(file_path, target_datetime=DEFAULT_TARGET_
     return travel_time, grids, grid_coords
 
 
+# =============================================================================
+# CLI: 预处理工具入口 —— 支持日期时间选择声明
+# =============================================================================
 if __name__ == "__main__":
-    file_path = "Utility.csv"
-    target_datetime = DEFAULT_TARGET_DATETIME
-    grids, grid_params, snapshot_df = prepare_optimize_inputs(file_path, target_datetime=target_datetime)
+    parser = argparse.ArgumentParser(
+        description="Pre_Process: 从预测 CSV 中提取指定小时的快照数据并输出摘要",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用示例:
+  python Pre_Process.py                                          # 使用默认时间 %s
+  python Pre_Process.py --datetime "2025/10/28 14:00"            # 指定具体时间
+  python Pre_Process.py --random                                 # 随机选取一个可用小时
+  python Pre_Process.py --random --seed 42                       # 随机选取 (固定种子)
+  python Pre_Process.py --list-hours                             # 列出所有可用小时
+  python Pre_Process.py --list-hours --start "2025/10/24" --end "2025/10/27"
+  python Pre_Process.py --file path/to/other.csv                 # 指定其他 CSV 文件
+        """ % DEFAULT_TARGET_DATETIME,
+    )
+    parser.add_argument(
+        "--file", type=str, default=DEFAULT_PREDICTION_FILE,
+        help=f"预测数据 CSV 文件路径 (默认: {os.path.basename(DEFAULT_PREDICTION_FILE)})"
+    )
+    parser.add_argument(
+        "--datetime", type=str, default=None,
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' 或 'YYYY/MM/DD HH:00' (例如 '2025/10/28 14:00')"
+    )
+    parser.add_argument(
+        "--random", action="store_true",
+        help="从可用小时中随机选取一个 (范围: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="配合 --random 使用, 固定随机种子以实现结果复现"
+    )
+    parser.add_argument(
+        "--start", type=str, default=DATETIME_RANGE_START,
+        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+    )
+    parser.add_argument(
+        "--end", type=str, default=DATETIME_RANGE_END,
+        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+    )
+    parser.add_argument(
+        "--list-hours", action="store_true",
+        help="列出 CSV 中所有可用的小时并退出"
+    )
 
-    print(f"Selected hour: {pd.Timestamp(target_datetime).floor('h')}")
-    print(f"Node count: {len(grids)}")
+    args = parser.parse_args()
+
+    # =========================================================================
+    # 模式 1: 列出所有可用小时
+    # =========================================================================
+    if args.list_hours:
+        hours = list_available_hours(
+            file_path=args.file,
+            start=args.start,
+            end=args.end,
+        )
+        print(f"文件: {args.file}")
+        print(f"时间范围: {args.start} ~ {args.end}")
+        print(f"可用小时数: {len(hours)}")
+        print("-" * 40)
+        for h in hours:
+            print(h.strftime("%Y/%m/%d %H:%M"))
+        exit(0)
+
+    # =========================================================================
+    # 模式 2: 确定目标日期时间
+    # =========================================================================
+    if args.random:
+        target_datetime = select_random_datetime(
+            file_path=args.file,
+            start=args.start,
+            end=args.end,
+            seed=args.seed,
+        )
+        print("=" * 60)
+        print("  [随机] 随机选取模式 — 已从可用小时中随机选择")
+        if args.seed is not None:
+            print(f"  随机种子: {args.seed}")
+    elif args.datetime is not None:
+        target_datetime = args.datetime
+        print("=" * 60)
+        print("  [指定] 用户指定日期时间模式")
+    else:
+        target_datetime = DEFAULT_TARGET_DATETIME
+        print("=" * 60)
+        print("  [默认] 使用默认日期时间模式")
+
+    print(f"  选择的目标时间: {target_datetime}")
+    print(f"  数据文件: {args.file}")
+    print("=" * 60)
+
+    # =========================================================================
+    # 模式 3: 加载快照并输出摘要
+    # =========================================================================
+    grids, grid_params, snapshot_df = prepare_optimize_inputs(
+        file_path=args.file,
+        target_datetime=target_datetime,
+    )
+
+    print(f"\n  [OK] 快照加载成功")
+    print(f"  Node count: {len(grids)}")
+    print(f"  Selected hour: {pd.Timestamp(target_datetime).floor('h')}")
+    print(f"\n  前 5 个节点预览:")
     print(snapshot_df[["h3", "datetime", "rent_pred", "return_pred"]].head().to_string(index=False))

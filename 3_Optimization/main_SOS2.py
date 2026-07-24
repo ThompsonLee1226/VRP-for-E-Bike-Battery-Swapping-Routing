@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import argparse
 import numpy as np
 import pandas as pd
 from gurobipy import GRB
@@ -10,6 +11,11 @@ from Grid_Utility import calculate_operational_utility
 from Optimize_PLA import optimize_evrp_with_pla
 from Pre_Process import (
     DEFAULT_TARGET_DATETIME,
+    DEFAULT_PREDICTION_FILE,
+    DATETIME_RANGE_START,
+    DATETIME_RANGE_END,
+    select_random_datetime,
+    list_available_hours,
     generate_offline_utility_matrix,
     prepare_optimize_inputs,
     extract_grid_coordinates,
@@ -27,7 +33,7 @@ from experiment_config import get_experiment_config
 # =========================================================================
 # 默认参数配置
 # =========================================================================
-DEFAULT_DATA_FILE = "3_Optimization\\Grid_Utility_Test.csv"           # 输入数据文件
+DEFAULT_DATA_FILE = DEFAULT_PREDICTION_FILE  # 默认使用 CB_Hurdle 预测数据
 DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Optimization_Result_Summary")  # 输出目录
 DEFAULT_SPEED_KMH = 30.0                              # 车辆平均速度 (km/h)
 DEFAULT_C_MAX = 20                                    # 车辆最大载电池数
@@ -566,12 +572,97 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 
 
 # =========================================================================
-# 主入口
+# 主入口 (Production Simulation Entry Point)
 # =========================================================================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="SOS2-PLA 优化引擎 —— E-Bike Battery Swapping VRP",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用示例:
+  python main_SOS2.py                                                     # 使用默认时间
+  python main_SOS2.py --datetime "2025/10/28 14:00"                       # 指定具体时间
+  python main_SOS2.py --random                                            # 随机选取可用小时
+  python main_SOS2.py --random --seed 42                                  # 随机选取 (固定种子)
+  python main_SOS2.py --list-hours                                        # 列出可用小时
+  python main_SOS2.py --data path/to/other.csv                            # 指定数据文件
+        """,
+    )
+    parser.add_argument(
+        "--data", type=str, default=DEFAULT_DATA_FILE,
+        help="预测数据 CSV 文件路径"
+    )
+    parser.add_argument(
+        "--datetime", type=str, default=None,
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/10/28 14:00')"
+    )
+    parser.add_argument(
+        "--random", action="store_true",
+        help="从可用小时中随机选取一个"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="配合 --random 使用, 固定随机种子"
+    )
+    parser.add_argument(
+        "--start", type=str, default=DATETIME_RANGE_START,
+        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+    )
+    parser.add_argument(
+        "--end", type=str, default=DATETIME_RANGE_END,
+        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+    )
+    parser.add_argument(
+        "--list-hours", action="store_true",
+        help="列出 CSV 中所有可用小时并退出"
+    )
+
+    args = parser.parse_args()
+
+    # ---- 列出可用小时模式 ----
+    if args.list_hours:
+        hours = list_available_hours(
+            file_path=args.data,
+            start=args.start,
+            end=args.end,
+        )
+        print("=" * 60)
+        print(f"  文件: {args.data}")
+        print(f"  时间范围: {args.start} ~ {args.end}")
+        print(f"  可用小时数: {len(hours)}")
+        print("=" * 60)
+        for h in hours:
+            print(h.strftime("%Y/%m/%d %H:%M"))
+        exit(0)
+
+    # ---- 确定目标日期时间 ----
+    if args.random:
+        target_datetime = select_random_datetime(
+            file_path=args.data,
+            start=args.start,
+            end=args.end,
+            seed=args.seed,
+        )
+        print("=" * 60)
+        print("  [随机] 随机选取模式 — SOS2-PLA 优化引擎")
+        if args.seed is not None:
+            print(f"  随机种子: {args.seed}")
+    elif args.datetime is not None:
+        target_datetime = args.datetime
+        print("=" * 60)
+        print("  [指定] 用户指定日期时间 — SOS2-PLA 优化引擎")
+    else:
+        target_datetime = DEFAULT_TARGET_DATETIME
+        print("=" * 60)
+        print("  [默认] 默认日期时间 — SOS2-PLA 优化引擎")
+
+    print(f"  选择的目标时间: {target_datetime}")
+    print(f"  数据文件: {args.data}")
+    print("=" * 60)
+
     result = run_optimization_pipeline(
-        data_file=DEFAULT_DATA_FILE,
-        target_datetime=DEFAULT_TARGET_DATETIME,
+        data_file=args.data,
+        target_datetime=target_datetime,
         depot_lat=None,
         depot_lon=None,
         vehicle_speed_kmh=30.0,

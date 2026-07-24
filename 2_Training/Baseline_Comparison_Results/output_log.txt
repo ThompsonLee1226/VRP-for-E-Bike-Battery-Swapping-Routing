@@ -1,142 +1,135 @@
-(ml) limingxiao@g5500-v6-3:~/VRP-for-E-Bike-Battery-Swapping-Routing$ git pull
-remote: Enumerating objects: 15, done.
-remote: Counting objects: 100% (15/15), done.
-remote: Compressing objects: 100% (1/1), done.
-Unpacking objects: 100% (8/8), 6.85 KiB | 1001.00 KiB/s, done.
-remote: Total 8 (delta 7), reused 8 (delta 7), pack-reused 0 (from 0)
-From github.com:ThompsonLee1226/VRP-for-E-Bike-Battery-Swapping-Routing
-   dcee9ee..ae29258  main       -> origin/main
-Updating dcee9ee..ae29258
-Fast-forward
- 2_Training/CB_Hurdle_train.py     |  87 +++++++++++++--------
- 2_Training/CatBoost_train.py      |  53 +++++++++++--
- 2_Training/LightGBM_train.py      |  65 +++++++++++-----
- 2_Training/Random_Forest_train.py |  62 ++++++++++++---
- 2_Training/baseline_comparison.py | 312 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
- 5 files changed, 486 insertions(+), 93 deletions(-)
-(ml) limingxiao@g5500-v6-3:~/VRP-for-E-Bike-Battery-Swapping-Routing$ python 2_Training/baseline_comparison.py
-usage: baseline_comparison.py [-h] --train_csv TRAIN_CSV --test_csv TEST_CSV [--cb_summary CB_SUMMARY]
-                              [--output_dir OUTPUT_DIR]
-baseline_comparison.py: error: the following arguments are required: --train_csv, --test_csv
 (ml) limingxiao@g5500-v6-3:~/VRP-for-E-Bike-Battery-Swapping-Routing$     python 2_Training/baseline_comparison.py \
       --train_csv battery_swapping_routing_data_train_time70.csv \
       --test_csv battery_swapping_routing_data_valid_time30.csv \
-      --cb_summary 2_Training/training_summary.csv \
       --output_dir 2_Training/Baseline_Comparison_Results
 ============================================================
 [1/7] 加载数据...
   训练集: (682920, 23)
   测试集: (292680, 23)
 
-[2/7] 读取CatBoost / CB_Hurdle已有结果...
-  从 2_Training/training_summary.csv 读取了 4 条CatBoost记录。
-
-[3/7] 训练 CatBoost...
+[2/6] 训练 CatBoost...
 
   CatBoost — 目标: rent
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-0:      learn: 0.8514718        test: 0.8693783 best: 0.8693783 (0)     total: 253ms    remaining: 12m 38s
-100:    learn: -2.5697003       test: -2.0891004        best: -2.0891004 (100)  total: 13s      remaining: 6m 13s
-200:    learn: -2.6602590       test: -2.1361173        best: -2.1361173 (200)  total: 27.2s    remaining: 6m 18s
-Stopped by overfitting detector  (50 iterations wait)
+0:      learn: 0.9007404        test: 0.9126529 best: 0.9126529 (0)     total: 289ms    remaining: 24m 6s
+100:    learn: -2.4500252       test: -1.9943637        best: -1.9943637 (100)  total: 15.7s    remaining: 12m 39s
+200:    learn: -2.6260838       test: -2.1248116        best: -2.1248116 (200)  total: 32.2s    remaining: 12m 47s
+300:    learn: -2.6738159       test: -2.1354344        best: -2.1355442 (294)  total: 50.2s    remaining: 13m 3s
+400:    learn: -2.6978690       test: -2.1379561        best: -2.1381245 (385)  total: 1m 8s    remaining: 13m
+Stopped by overfitting detector  (80 iterations wait)
 
-bestTest = -2.138696356
-bestIteration = 218
+bestTest = -2.138363973
+bestIteration = 414
 
-Shrink model to first 219 iterations.
-    验证集: Poisson=1.0582, RMSE=2.2308, best_iter=218
+Shrink model to first 415 iterations.
+    验证集: Poisson=1.0588, RMSE=2.2806, best_iter=414
 
   CatBoost — 目标: return
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-0:      learn: 0.8454381        test: 0.8635668 best: 0.8635668 (0)     total: 198ms    remaining: 9m 52s
-100:    learn: -2.5603209       test: -2.0820003        best: -2.0820003 (100)  total: 11.9s    remaining: 5m 41s
-200:    learn: -2.6467280       test: -2.1063977        best: -2.1063977 (200)  total: 24.9s    remaining: 5m 47s
-Stopped by overfitting detector  (50 iterations wait)
+0:      learn: 0.8967437        test: 0.9088214 best: 0.9088214 (0)     total: 199ms    remaining: 16m 35s
+100:    learn: -2.4377459       test: -1.9876831        best: -1.9876831 (100)  total: 14.3s    remaining: 11m 34s
+200:    learn: -2.6114888       test: -2.0997718        best: -2.0997718 (200)  total: 30.8s    remaining: 12m 15s
+300:    learn: -2.6554211       test: -2.1138492        best: -2.1138492 (300)  total: 46.7s    remaining: 12m 8s
+400:    learn: -2.6779555       test: -2.1146767        best: -2.1174693 (339)  total: 1m 3s    remaining: 12m 6s
+Stopped by overfitting detector  (80 iterations wait)
 
-bestTest = -2.11092874
-bestIteration = 222
+bestTest = -2.11746926
+bestIteration = 339
 
-Shrink model to first 223 iterations.
-    验证集: Poisson=1.1750, RMSE=2.4897, best_iter=222
+Shrink model to first 340 iterations.
+    验证集: Poisson=1.1619, RMSE=2.4603, best_iter=339
 
-[4/7] 训练 CatBoost Hurdle...
+[3/6] 训练 CatBoost Hurdle...
 
   CatBoost Hurdle — 目标: rent
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-0:      learn: 0.6616565        test: 0.6614530 best: 0.6614530 (0)     total: 288ms    remaining: 14m 24s
-100:    learn: 0.3036219        test: 0.3057759 best: 0.3057759 (100)   total: 16.6s    remaining: 7m 55s
-200:    learn: 0.2945600        test: 0.3022742 best: 0.3022742 (200)   total: 34.5s    remaining: 8m
-300:    learn: 0.2894934        test: 0.3014861 best: 0.3014645 (298)   total: 52.3s    remaining: 7m 48s
-400:    learn: 0.2857588        test: 0.3011037 best: 0.3010450 (398)   total: 1m 9s    remaining: 7m 28s
-500:    learn: 0.2823084        test: 0.3005215 best: 0.3005215 (500)   total: 1m 25s   remaining: 7m 8s
-600:    learn: 0.2790369        test: 0.3002638 best: 0.3002424 (585)   total: 1m 42s   remaining: 6m 49s
-700:    learn: 0.2761554        test: 0.3001418 best: 0.3001151 (654)   total: 1m 59s   remaining: 6m 31s
-Stopped by overfitting detector  (50 iterations wait)
+0:      learn: 0.6719384        test: 0.6718007 best: 0.6718007 (0)     total: 245ms    remaining: 20m 24s
+100:    learn: 0.3122480        test: 0.3125370 best: 0.3125370 (100)   total: 16.9s    remaining: 13m 40s
+200:    learn: 0.2996764        test: 0.3041428 best: 0.3041293 (199)   total: 35.2s    remaining: 13m 59s
+300:    learn: 0.2947841        test: 0.3027842 best: 0.3027502 (297)   total: 54s      remaining: 14m 2s
+400:    learn: 0.2910538        test: 0.3020973 best: 0.3020938 (399)   total: 1m 13s   remaining: 14m 7s
+500:    learn: 0.2881286        test: 0.3017507 best: 0.3017327 (498)   total: 1m 34s   remaining: 14m 5s
+600:    learn: 0.2855609        test: 0.3014195 best: 0.3014195 (600)   total: 1m 54s   remaining: 13m 59s
+700:    learn: 0.2832657        test: 0.3011100 best: 0.3011092 (698)   total: 2m 13s   remaining: 13m 36s
+800:    learn: 0.2809432        test: 0.3007401 best: 0.3007401 (800)   total: 2m 31s   remaining: 13m 13s
+900:    learn: 0.2787810        test: 0.3004342 best: 0.3004260 (898)   total: 2m 49s   remaining: 12m 50s
+1000:   learn: 0.2768017        test: 0.3002890 best: 0.3002654 (989)   total: 3m 7s    remaining: 12m 28s
+1100:   learn: 0.2750409        test: 0.3002129 best: 0.3001754 (1061)  total: 3m 26s   remaining: 12m 9s
+Stopped by overfitting detector  (80 iterations wait)
 
-bestTest = 0.300115122
-bestIteration = 654
+bestTest = 0.3001753687
+bestIteration = 1061
 
-Shrink model to first 655 iterations.
-0:      learn: 0.6851129        test: 0.7199414 best: 0.7199414 (0)     total: 140ms    remaining: 6m 59s
-100:    learn: -6.3845197       test: -5.4449999        best: -5.4449999 (100)  total: 10.7s    remaining: 5m 6s
-200:    learn: -6.4879951       test: -5.4493019        best: -5.4670106 (152)  total: 22.5s    remaining: 5m 13s
-Stopped by overfitting detector  (50 iterations wait)
+Shrink model to first 1062 iterations.
+0:      learn: 0.7898161        test: 0.8130477 best: 0.8130477 (0)     total: 161ms    remaining: 13m 24s
+100:    learn: -6.1536929       test: -5.2757823        best: -5.2757823 (100)  total: 11.2s    remaining: 9m 4s
+200:    learn: -6.4376251       test: -5.4666819        best: -5.4680642 (196)  total: 23.9s    remaining: 9m 29s
+Stopped by overfitting detector  (80 iterations wait)
 
-bestTest = -5.467010558
-bestIteration = 152
+bestTest = -5.469822046
+bestIteration = 219
 
-Shrink model to first 153 iterations.
-    验证集: Poisson=0.9949, RMSE=2.1820, best_iter=152
+Shrink model to first 220 iterations.
+    验证集: Poisson=0.9919, RMSE=2.1770, best_iter=219
 
   CatBoost Hurdle — 目标: return
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-0:      learn: 0.6659743        test: 0.6659302 best: 0.6659302 (0)     total: 239ms    remaining: 11m 56s
-100:    learn: 0.3252179        test: 0.3309656 best: 0.3309656 (100)   total: 15.9s    remaining: 7m 36s
-200:    learn: 0.3164975        test: 0.3283828 best: 0.3283828 (200)   total: 33.4s    remaining: 7m 44s
-Stopped by overfitting detector  (50 iterations wait)
+0:      learn: 0.6748707        test: 0.6748419 best: 0.6748419 (0)     total: 251ms    remaining: 20m 53s
+100:    learn: 0.3334804        test: 0.3366193 best: 0.3366193 (100)   total: 16.4s    remaining: 13m 13s
+200:    learn: 0.3214249        test: 0.3290428 best: 0.3290428 (200)   total: 35.1s    remaining: 13m 58s
+300:    learn: 0.3166125        test: 0.3278851 best: 0.3277874 (285)   total: 53.8s    remaining: 13m 59s
+400:    learn: 0.3133207        test: 0.3277083 best: 0.3276595 (398)   total: 1m 12s   remaining: 13m 55s
+Stopped by overfitting detector  (80 iterations wait)
 
-bestTest = 0.3281183504
-bestIteration = 249
+bestTest = 0.3276595292
+bestIteration = 398
 
-Shrink model to first 250 iterations.
-0:      learn: 0.6881090        test: 0.7236704 best: 0.7236704 (0)     total: 129ms    remaining: 6m 25s
-100:    learn: -6.3827101       test: -5.4593362        best: -5.4593362 (100)  total: 10.3s    remaining: 4m 56s
-Stopped by overfitting detector  (50 iterations wait)
+Shrink model to first 399 iterations.
+0:      learn: 0.7918194        test: 0.8155455 best: 0.8155455 (0)     total: 141ms    remaining: 11m 47s
+100:    learn: -6.1547984       test: -5.2858126        best: -5.2858126 (100)  total: 11.1s    remaining: 8m 56s
+200:    learn: -6.4328675       test: -5.4441926        best: -5.4506050 (158)  total: 23.5s    remaining: 9m 20s
+Stopped by overfitting detector  (80 iterations wait)
 
-bestTest = -5.466583072
-bestIteration = 110
+bestTest = -5.45060505
+bestIteration = 158
 
-Shrink model to first 111 iterations.
-    验证集: Poisson=1.0883, RMSE=2.3453, best_iter=110
+Shrink model to first 159 iterations.
+    验证集: Poisson=1.1017, RMSE=2.4001, best_iter=158
 
-[5/7] 训练 LightGBM...
+[4/6] 训练 LightGBM...
 
   LightGBM — 目标: rent
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-Training until validation scores don't improve for 100 rounds
+Training until validation scores don't improve for 150 rounds
+[100]   valid's poisson: -1.91172
+[200]   valid's poisson: -2.10754
+[300]   valid's poisson: -2.12103
+[400]   valid's poisson: -2.11789
 Early stopping, best iteration is:
-[45]    valid's rmse: 2.21272
-    验证集: Poisson=1.2172, RMSE=2.2127, best_iter=45
+[268]   valid's poisson: -2.12622
+    验证集: Poisson=1.0831, RMSE=2.3727, best_iter=268
 
   LightGBM — 目标: return
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-Training until validation scores don't improve for 100 rounds
+Training until validation scores don't improve for 150 rounds
+[100]   valid's poisson: -1.91223
+[200]   valid's poisson: -2.07137
+[300]   valid's poisson: -2.07126
 Early stopping, best iteration is:
-[39]    valid's rmse: 2.44923
-    验证集: Poisson=1.3637, RMSE=2.4492, best_iter=39
+[239]   valid's poisson: -2.07993
+    验证集: Poisson=1.2370, RMSE=2.8081, best_iter=239
 
-[6/7] 训练 Random Forest...
+[5/6] 训练 Random Forest...
 
   Random Forest — 目标: rent
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-    验证集: Poisson=1.0298, RMSE=2.1872, 耗时=34.9s
+    验证集: Poisson=1.0443, RMSE=2.2085, 耗时=14.2s
 
   Random Forest — 目标: return
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
-    验证集: Poisson=1.1437, RMSE=2.3684, 耗时=10.4s
+    验证集: Poisson=1.1598, RMSE=2.3970, 耗时=14.3s
 
-============================================================
-[7/7] 测试集预测与汇总...
+[6/6] 测试集预测与汇总...
 
 ============================================================
   测试集指标 — rent
@@ -236,16 +229,17 @@ Early stopping, best iteration is:
 ============================================================
 
   [rent]
+    CB Hurdle             Poisson=0.9919
     Random Forest         Poisson=1.0443
+    CatBoost              Poisson=1.0588
     LightGBM              Poisson=1.0831
 
   [return]
+    CB Hurdle             Poisson=1.1017
     Random Forest         Poisson=1.1598
+    CatBoost              Poisson=1.1619
     LightGBM              Poisson=1.2370
 
-============================================================
-完成。
-============================================================
 ============================================================
 完成。
 ============================================================

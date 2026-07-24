@@ -39,12 +39,20 @@ from experiment_config import (
     get_experiment_config, list_experiments,
 )
 from experiment_utils import merge_batch_results
+from Pre_Process import (
+    DEFAULT_TARGET_DATETIME,
+    DEFAULT_PREDICTION_FILE,
+    DATETIME_RANGE_START,
+    DATETIME_RANGE_END,
+    select_random_datetime,
+    list_available_hours,
+)
 
 
 # =============================================================================
 # 默认运行配置
 # =============================================================================
-DEFAULT_DATA_FILE = os.path.join(_current_dir, "Grid_Utility_Test.csv")
+DEFAULT_DATA_FILE = DEFAULT_PREDICTION_FILE  # 默认使用 CB_Hurdle 预测数据
 DEFAULT_OUTPUT_DIR = os.path.join(_current_dir, "Optimization_Result_Summary")
 DEFAULT_OUTPUT_DIR = os.path.normpath(DEFAULT_OUTPUT_DIR)
 
@@ -64,11 +72,13 @@ class BatchRunner:
     def __init__(self, data_file: str = DEFAULT_DATA_FILE,
                  output_dir: str = DEFAULT_OUTPUT_DIR,
                  verbose: bool = True,
-                 use_aligned_params: bool = False):
+                 use_aligned_params: bool = False,
+                 target_datetime: str = DEFAULT_TARGET_DATETIME):
         self.data_file = data_file
         self.output_dir = output_dir
         self.verbose = verbose
         self.use_aligned_params = use_aligned_params
+        self.target_datetime = target_datetime
         self.results: list[dict] = []
         self.run_summary: list[dict] = []
 
@@ -90,6 +100,7 @@ class BatchRunner:
 
         params = {
             "data_file": self.data_file,
+            "target_datetime": self.target_datetime,
             "vehicle_speed_kmh": cfg["vehicle_speed_kmh"],
             "C_max": cfg["C_max"],
             "T_total": cfg["T_total"],
@@ -114,6 +125,7 @@ class BatchRunner:
             print(f"  Role: {cfg['academic_role']}")
             print(f"  P={cfg['P_intervals']} | MIPGap={cfg['mip_gap']} | "
                   f"GeoFence={cfg['geo_fencing']} | KNN={cfg['knn_enabled']}")
+            print(f"  Target Datetime: {self.target_datetime}")
             print(f"{'='*70}")
 
         t0 = time.perf_counter()
@@ -141,6 +153,7 @@ class BatchRunner:
 
         params = {
             "data_file": self.data_file,
+            "target_datetime": self.target_datetime,
             "vehicle_speed_kmh": cfg["vehicle_speed_kmh"],
             "C_max": cfg["C_max"],
             "T_total": cfg["T_total"],
@@ -164,6 +177,7 @@ class BatchRunner:
             print(f"  Role: {cfg['academic_role']}")
             print(f"  P={cfg['P_intervals']} | MIPGap={cfg['mip_gap']} | "
                   f"Method=Primal")
+            print(f"  Target Datetime: {self.target_datetime}")
             print(f"{'='*70}")
 
         t0 = time.perf_counter()
@@ -191,6 +205,7 @@ class BatchRunner:
 
         params = {
             "data_file": self.data_file,
+            "target_datetime": self.target_datetime,
             "vehicle_speed_kmh": cfg["vehicle_speed_kmh"],
             "C_max": cfg["C_max"],
             "T_total": cfg["T_total"],
@@ -214,6 +229,7 @@ class BatchRunner:
             print(f"  Role: {cfg['academic_role']}")
             print(f"  P={cfg['P_intervals']} | MIPGap={cfg['mip_gap']} | "
                   f"Cuts={cfg['cuts']}")
+            print(f"  Target Datetime: {self.target_datetime}")
             print(f"{'='*70}")
 
         t0 = time.perf_counter()
@@ -241,6 +257,7 @@ class BatchRunner:
 
         params = {
             "data_file": self.data_file,
+            "target_datetime": self.target_datetime,
             "vehicle_speed_kmh": cfg["vehicle_speed_kmh"],
             "C_max": cfg["C_max"],
             "T_total": cfg["T_total"],
@@ -264,6 +281,7 @@ class BatchRunner:
             print(f"  Role: {cfg['academic_role']}")
             print(f"  P={cfg['P_intervals']} | MIPGap={cfg['mip_gap']} | "
                   f"LazyMTZ={'Yes' if cfg.get('lazy_constraints') else 'No'}")
+            print(f"  Target Datetime: {self.target_datetime}")
             print(f"{'='*70}")
 
         t0 = time.perf_counter()
@@ -351,6 +369,7 @@ class BatchRunner:
         print(f"#  批量实验启动")
         print(f"#  实验组: {groups}")
         print(f"#  数据文件: {self.data_file}")
+        print(f"#  目标时间: {self.target_datetime}")
         print(f"#  输出目录: {self.output_dir}")
         print(f"#  对齐模式: {'ON' if self.use_aligned_params else 'OFF (各模型使用最优配置)'}")
         print(f"{'#'*70}")
@@ -452,11 +471,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python batch_runner.py                              # 运行 M1-M5 全部实验组
-  python batch_runner.py --groups M1 M3 M5            # 仅运行指定实验组
-  python batch_runner.py --skip M2c                   # 跳过可选消融组
-  python batch_runner.py --aligned                    # 使用对齐参数
-  python batch_runner.py --data my_data.csv           # 指定数据文件
+  python batch_runner.py                                                 # 运行 M1-M5 全部实验组 (默认时间)
+  python batch_runner.py --datetime "2025/10/28 14:00"                   # 指定具体时间
+  python batch_runner.py --random                                        # 随机选取可用小时
+  python batch_runner.py --random --seed 42                              # 随机选取 (固定种子)
+  python batch_runner.py --list-hours                                    # 列出可用小时
+  python batch_runner.py --groups M1 M3 M5                               # 仅运行指定实验组
+  python batch_runner.py --skip M2c                                      # 跳过可选消融组
+  python batch_runner.py --aligned                                       # 使用对齐参数
+  python batch_runner.py --data my_data.csv                              # 指定数据文件
         """,
     )
     parser.add_argument("--groups", nargs="+", default=None,
@@ -466,7 +489,7 @@ def main():
     parser.add_argument("--include-optional", action="store_true",
                         help="包含可选消融组 M2c")
     parser.add_argument("--data", type=str, default=DEFAULT_DATA_FILE,
-                        help=f"数据文件路径 (默认: {DEFAULT_DATA_FILE})")
+                        help=f"数据文件路径 (默认: prediction_CB_Hurdle.csv)")
     parser.add_argument("--output", type=str, default=DEFAULT_OUTPUT_DIR,
                         help=f"输出目录 (默认: {DEFAULT_OUTPUT_DIR})")
     parser.add_argument("--instance", type=str, default="default",
@@ -477,6 +500,31 @@ def main():
                         help="减少输出")
     parser.add_argument("--list", action="store_true",
                         help="列出所有实验组配置并退出")
+    # ---- 日期时间选择 ----
+    parser.add_argument(
+        "--datetime", type=str, default=None,
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/10/28 14:00')"
+    )
+    parser.add_argument(
+        "--random", action="store_true",
+        help="从可用小时中随机选取一个 (范围: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="配合 --random 使用, 固定随机种子"
+    )
+    parser.add_argument(
+        "--start", type=str, default=DATETIME_RANGE_START,
+        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+    )
+    parser.add_argument(
+        "--end", type=str, default=DATETIME_RANGE_END,
+        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+    )
+    parser.add_argument(
+        "--list-hours", action="store_true",
+        help="列出 CSV 中所有可用小时并退出"
+    )
 
     args = parser.parse_args()
 
@@ -489,6 +537,49 @@ def main():
                   f"KNN={e['KNN']}  [{e['Role']}]")
         print()
         return
+
+    # ---- 列出可用小时模式 ----
+    if args.list_hours:
+        hours = list_available_hours(
+            file_path=args.data,
+            start=args.start,
+            end=args.end,
+        )
+        print("=" * 60)
+        print(f"  文件: {args.data}")
+        print(f"  时间范围: {args.start} ~ {args.end}")
+        print(f"  可用小时数: {len(hours)}")
+        print("=" * 60)
+        for h in hours:
+            print(h.strftime("%Y/%m/%d %H:%M"))
+        return
+
+    # ---- 确定目标日期时间 ----
+    if args.random:
+        target_datetime = select_random_datetime(
+            file_path=args.data,
+            start=args.start,
+            end=args.end,
+            seed=args.seed,
+        )
+        print("=" * 60)
+        print("  [随机] 批量实验 — 随机选取模式")
+        if args.seed is not None:
+            print(f"  随机种子: {args.seed}")
+        print(f"  选择的目标时间: {target_datetime}")
+        print("=" * 60)
+    elif args.datetime is not None:
+        target_datetime = args.datetime
+        print("=" * 60)
+        print("  [指定] 批量实验 — 用户指定日期时间模式")
+        print(f"  选择的目标时间: {target_datetime}")
+        print("=" * 60)
+    else:
+        target_datetime = DEFAULT_TARGET_DATETIME
+        print("=" * 60)
+        print("  [默认] 批量实验 — 默认日期时间模式")
+        print(f"  选择的目标时间: {target_datetime}")
+        print("=" * 60)
 
     # 确定实验组列表
     if args.groups:
@@ -524,6 +615,7 @@ def main():
         output_dir=run_output_dir,
         verbose=not args.quiet,
         use_aligned_params=args.aligned,
+        target_datetime=target_datetime,
     )
     runner.run_all(groups=groups, instance_name=args.instance)
 
