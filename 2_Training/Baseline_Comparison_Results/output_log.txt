@@ -1,0 +1,179 @@
+(ml) limingxiao@g5500-v6-3:~/VRP-for-E-Bike-Battery-Swapping-Routing$ git pull
+remote: Enumerating objects: 15, done.
+remote: Counting objects: 100% (15/15), done.
+remote: Compressing objects: 100% (1/1), done.
+Unpacking objects: 100% (8/8), 6.85 KiB | 1001.00 KiB/s, done.
+remote: Total 8 (delta 7), reused 8 (delta 7), pack-reused 0 (from 0)
+From github.com:ThompsonLee1226/VRP-for-E-Bike-Battery-Swapping-Routing
+   dcee9ee..ae29258  main       -> origin/main
+Updating dcee9ee..ae29258
+Fast-forward
+ 2_Training/CB_Hurdle_train.py     |  87 +++++++++++++--------
+ 2_Training/CatBoost_train.py      |  53 +++++++++++--
+ 2_Training/LightGBM_train.py      |  65 +++++++++++-----
+ 2_Training/Random_Forest_train.py |  62 ++++++++++++---
+ 2_Training/baseline_comparison.py | 312 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------
+ 5 files changed, 486 insertions(+), 93 deletions(-)
+(ml) limingxiao@g5500-v6-3:~/VRP-for-E-Bike-Battery-Swapping-Routing$ python 2_Training/baseline_comparison.py
+usage: baseline_comparison.py [-h] --train_csv TRAIN_CSV --test_csv TEST_CSV [--cb_summary CB_SUMMARY]
+                              [--output_dir OUTPUT_DIR]
+baseline_comparison.py: error: the following arguments are required: --train_csv, --test_csv
+(ml) limingxiao@g5500-v6-3:~/VRP-for-E-Bike-Battery-Swapping-Routing$     python 2_Training/baseline_comparison.py \
+      --train_csv battery_swapping_routing_data_train_time70.csv \
+      --test_csv battery_swapping_routing_data_valid_time30.csv \
+      --cb_summary 2_Training/training_summary.csv \
+      --output_dir 2_Training/Baseline_Comparison_Results
+============================================================
+[1/7] 加载数据...
+  训练集: (682920, 23)
+  测试集: (292680, 23)
+
+[2/7] 读取CatBoost / CB_Hurdle已有结果...
+  从 2_Training/training_summary.csv 读取了 4 条CatBoost记录。
+
+[3/7] 训练 CatBoost...
+
+  CatBoost — 目标: rent
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+0:      learn: 0.8514718        test: 0.8693783 best: 0.8693783 (0)     total: 253ms    remaining: 12m 38s
+100:    learn: -2.5697003       test: -2.0891004        best: -2.0891004 (100)  total: 13s      remaining: 6m 13s
+200:    learn: -2.6602590       test: -2.1361173        best: -2.1361173 (200)  total: 27.2s    remaining: 6m 18s
+Stopped by overfitting detector  (50 iterations wait)
+
+bestTest = -2.138696356
+bestIteration = 218
+
+Shrink model to first 219 iterations.
+    验证集: Poisson=1.0582, RMSE=2.2308, best_iter=218
+
+  CatBoost — 目标: return
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+0:      learn: 0.8454381        test: 0.8635668 best: 0.8635668 (0)     total: 198ms    remaining: 9m 52s
+100:    learn: -2.5603209       test: -2.0820003        best: -2.0820003 (100)  total: 11.9s    remaining: 5m 41s
+200:    learn: -2.6467280       test: -2.1063977        best: -2.1063977 (200)  total: 24.9s    remaining: 5m 47s
+Stopped by overfitting detector  (50 iterations wait)
+
+bestTest = -2.11092874
+bestIteration = 222
+
+Shrink model to first 223 iterations.
+    验证集: Poisson=1.1750, RMSE=2.4897, best_iter=222
+
+[4/7] 训练 CatBoost Hurdle...
+
+  CatBoost Hurdle — 目标: rent
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+0:      learn: 0.6616565        test: 0.6614530 best: 0.6614530 (0)     total: 288ms    remaining: 14m 24s
+100:    learn: 0.3036219        test: 0.3057759 best: 0.3057759 (100)   total: 16.6s    remaining: 7m 55s
+200:    learn: 0.2945600        test: 0.3022742 best: 0.3022742 (200)   total: 34.5s    remaining: 8m
+300:    learn: 0.2894934        test: 0.3014861 best: 0.3014645 (298)   total: 52.3s    remaining: 7m 48s
+400:    learn: 0.2857588        test: 0.3011037 best: 0.3010450 (398)   total: 1m 9s    remaining: 7m 28s
+500:    learn: 0.2823084        test: 0.3005215 best: 0.3005215 (500)   total: 1m 25s   remaining: 7m 8s
+600:    learn: 0.2790369        test: 0.3002638 best: 0.3002424 (585)   total: 1m 42s   remaining: 6m 49s
+700:    learn: 0.2761554        test: 0.3001418 best: 0.3001151 (654)   total: 1m 59s   remaining: 6m 31s
+Stopped by overfitting detector  (50 iterations wait)
+
+bestTest = 0.300115122
+bestIteration = 654
+
+Shrink model to first 655 iterations.
+0:      learn: 0.6851129        test: 0.7199414 best: 0.7199414 (0)     total: 140ms    remaining: 6m 59s
+100:    learn: -6.3845197       test: -5.4449999        best: -5.4449999 (100)  total: 10.7s    remaining: 5m 6s
+200:    learn: -6.4879951       test: -5.4493019        best: -5.4670106 (152)  total: 22.5s    remaining: 5m 13s
+Stopped by overfitting detector  (50 iterations wait)
+
+bestTest = -5.467010558
+bestIteration = 152
+
+Shrink model to first 153 iterations.
+    验证集: Poisson=0.9949, RMSE=2.1820, best_iter=152
+
+  CatBoost Hurdle — 目标: return
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+0:      learn: 0.6659743        test: 0.6659302 best: 0.6659302 (0)     total: 239ms    remaining: 11m 56s
+100:    learn: 0.3252179        test: 0.3309656 best: 0.3309656 (100)   total: 15.9s    remaining: 7m 36s
+200:    learn: 0.3164975        test: 0.3283828 best: 0.3283828 (200)   total: 33.4s    remaining: 7m 44s
+Stopped by overfitting detector  (50 iterations wait)
+
+bestTest = 0.3281183504
+bestIteration = 249
+
+Shrink model to first 250 iterations.
+0:      learn: 0.6881090        test: 0.7236704 best: 0.7236704 (0)     total: 129ms    remaining: 6m 25s
+100:    learn: -6.3827101       test: -5.4593362        best: -5.4593362 (100)  total: 10.3s    remaining: 4m 56s
+Stopped by overfitting detector  (50 iterations wait)
+
+bestTest = -5.466583072
+bestIteration = 110
+
+Shrink model to first 111 iterations.
+    验证集: Poisson=1.0883, RMSE=2.3453, best_iter=110
+
+[5/7] 训练 LightGBM...
+
+  LightGBM — 目标: rent
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+Training until validation scores don't improve for 100 rounds
+Early stopping, best iteration is:
+[45]    valid's rmse: 2.21272
+    验证集: Poisson=1.2172, RMSE=2.2127, best_iter=45
+
+  LightGBM — 目标: return
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+Training until validation scores don't improve for 100 rounds
+Early stopping, best iteration is:
+[39]    valid's rmse: 2.44923
+    验证集: Poisson=1.3637, RMSE=2.4492, best_iter=39
+
+[6/7] 训练 Random Forest...
+
+  Random Forest — 目标: rent
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+    验证集: Poisson=1.0298, RMSE=2.1872, 耗时=34.9s
+
+  Random Forest — 目标: return
+  时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
+    验证集: Poisson=1.1437, RMSE=2.3684, 耗时=10.4s
+
+[7/7] 测试集预测与汇总...
+
+  测试集指标 — rent:
+    CatBoost          : Poisson=1.0681, RMSE=2.2511, MAE=1.0734
+    CB Hurdle         : Poisson=1.0217, RMSE=2.2563, MAE=1.0558
+    LightGBM          : Poisson=1.2287, RMSE=2.2590, MAE=1.1794
+    Random Forest     : Poisson=1.0450, RMSE=2.2300, MAE=1.0807
+
+  测试集指标 — return:
+    CatBoost          : Poisson=1.1751, RMSE=2.4459, MAE=1.1519
+    CB Hurdle         : Poisson=1.1212, RMSE=2.4231, MAE=1.1047
+    LightGBM          : Poisson=1.3696, RMSE=2.4438, MAE=1.2603
+    Random Forest     : Poisson=1.1504, RMSE=2.3594, MAE=1.1432
+
+  合并测试集预测已保存至: 2_Training/Baseline_Comparison_Results/baseline_test_predictions.csv
+
+  保存各模型独立预测集（Grid_Utility 格式）...
+  [CatBoost] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_CatBoost.csv
+  [CB_Hurdle] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_CB_Hurdle.csv
+  [LightGBM] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_LightGBM.csv
+  [RandomForest] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_RandomForest.csv
+  模型对比表已保存至: 2_Training/Baseline_Comparison_Results/baseline_comparison.csv
+
+============================================================
+核心对比结果 (验证集Poisson偏差)
+============================================================
+
+  [rent]
+    CB Hurdle             Poisson=0.9853
+    Random Forest         Poisson=1.0298
+    CB                    Poisson=1.0541
+    LightGBM              Poisson=1.2172
+
+  [return]
+    CB Hurdle             Poisson=1.0953
+    Random Forest         Poisson=1.1437
+    CB                    Poisson=1.1687
+    LightGBM              Poisson=1.3637
+
+============================================================
+完成。
+============================================================
