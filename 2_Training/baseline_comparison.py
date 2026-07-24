@@ -9,13 +9,8 @@
   (4) Random Forest  — 单阶段回归（n=1500, depth=22, min_leaf=3）
 
 实验设计原则：
-  - 四种架构使用完全相同的训练/验证时间切分（前80%训练，后20%验证）
-  - 使用完全相同的特征集
-  - CB/CB_Hurdle/LightGBM 统一使用 Poisson 损失（公平对比）
-  - 统一以Poisson偏差作为核心对比指标
-  - 零膨胀专项指标（Zero Recall/Precision/F1, 条件RMSE/Poisson）衡量零值处理能力
-  - 对比表中CatBoost和CB_Hurdle的结果优先读取已有的training_summary.csv（最优超参）
-  - 预测集由本脚本独立训练的模型产生，确保输出完全对齐
+  - 四种架构使用完全相同的训练/验证时间切分（前80%训练，后20%验证）和特征集
+  - 全部模型从零训练，不使用任何预训练结果
 
 输出文件：
   (A) baseline_comparison.csv — 四种架构的参数与性能对比（每行一个模型×目标）
@@ -30,7 +25,6 @@
     python 2_Training/baseline_comparison.py \
       --train_csv battery_swapping_routing_data_train_time70.csv \
       --test_csv battery_swapping_routing_data_valid_time30.csv \
-      --cb_summary 2_Training/training_summary.csv \
       --output_dir 2_Training/Baseline_Comparison_Results
 """
 
@@ -244,55 +238,6 @@ def save_model_predictions(
     result_df.to_csv(out_path, index=False)
     print(f"  [{model_name}] 预测集已保存至: {out_path}")
     return out_path
-
-
-# ── CatBoost / CB_Hurdle 结果读取 ───────────────────────────────────────
-
-def load_catboost_results(cb_summary_csv: str) -> List[Dict]:
-    """
-    从 training_summary.csv 中读取 CatBoost 和 CB_Hurdle 的最优结果。
-    策略：对每种 model_type，取 od_wait=30 下 rent_final_metric 最小的行。
-    """
-    if not cb_summary_csv or not os.path.exists(cb_summary_csv):
-        print(f"  注意: 未找到 {cb_summary_csv}，将跳过CatBoost结果。")
-        return []
-
-    df = pd.read_csv(cb_summary_csv)
-    rows = []
-
-    for model_type in ['CB', 'CB_Hurdle']:
-        sub = df[df['model_type'] == model_type].copy()
-        if sub.empty:
-            print(f"  注意: CSV中无 model_type={model_type} 的记录。")
-            continue
-
-        # 优先选 od_wait=30
-        sub30 = sub[sub.get('cb_od_wait', np.nan) == 30]
-        if sub30.empty:
-            sub30 = sub
-
-        # 找 rent_final_metric 最小的行
-        best = sub30.loc[sub30['rent_final_metric'].idxmin()]
-
-        for target in TARGETS:
-            rows.append({
-                'model': model_type.replace('_', ' '),
-                'model_type': model_type,
-                'target': target,
-                'learning_rate': best.get('cb_learning_rate', np.nan),
-                'depth': best.get('cb_depth', np.nan),
-                'l2_leaf_reg': best.get('cb_l2_leaf_reg', np.nan),
-                'od_wait': best.get('cb_od_wait', np.nan),
-                'best_iteration': best.get(f'{target}_best_iteration', np.nan),
-                'valid_poisson': best.get(f'{target}_final_metric', np.nan),
-                'valid_rmse': np.nan,  # CatBoost未记录RMSE
-                'valid_mae': np.nan,
-                'training_seconds': np.nan,
-                'notes': f"来自 {cb_summary_csv}, run={best.get('run_timestamp', '?')}",
-            })
-
-    print(f"  从 {cb_summary_csv} 读取了 {len(rows)} 条CatBoost记录。")
-    return rows
 
 
 # ── LightGBM 训练 ────────────────────────────────────────────────────────
@@ -551,10 +496,9 @@ def train_cb_hurdle(
 # ── 主流程 ────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='四种架构基准对比')
+    parser = argparse.ArgumentParser(description='四种架构基准对比：全部模型从零训练，统一数据划分')
     parser.add_argument('--train_csv', required=True, help='训练集CSV')
     parser.add_argument('--test_csv', required=True, help='测试集CSV')
-    parser.add_argument('--cb_summary', default=None, help='CatBoost training_summary.csv路径')
     parser.add_argument('--output_dir', default='Baseline_Comparison_Results', help='输出目录')
     args = parser.parse_args()
 
@@ -585,13 +529,8 @@ def main():
     model_objects: Dict[str, Dict[str, object]] = {}  # {model_name: {target: trained_model}}
     rf_h3_mapping: Dict[str, dict] = {}  # {target: h3_mapping} — 训练集编码，测试时复用
 
-    # ── 2. 读取CatBoost结果 ──
-    print("\n[2/7] 读取CatBoost / CB_Hurdle已有结果...")
-    cb_rows = load_catboost_results(args.cb_summary)
-    comparison_rows.extend(cb_rows)
-
-    # ── 3. 训练CatBoost（单阶段Poisson回归）──
-    print("\n[3/7] 训练 CatBoost...")
+    # ── 2. 训练CatBoost（单阶段Poisson回归）──
+    print("\n[2/6] 训练 CatBoost...")
     for target in TARGETS:
         print(f"\n  CatBoost — 目标: {target}")
         y_raw = df_train[target].astype(float)
@@ -603,8 +542,20 @@ def main():
         print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
               f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
 
-    # ── 4. 训练CatBoost Hurdle（两阶段零膨胀模型）──
-    print("\n[4/7] 训练 CatBoost Hurdle...")
+        comparison_rows.append({
+            'model': 'CatBoost',
+            'model_type': 'CB',
+            'target': target,
+            **{k: v for k, v in info.items() if k not in
+               ['valid_poisson', 'valid_rmse', 'valid_mae']},
+            'valid_poisson': info['valid_poisson'],
+            'valid_rmse': info['valid_rmse'],
+            'valid_mae': info['valid_mae'],
+            'notes': f'train={len(X_train)}, valid={len(X_valid)}',
+        })
+
+    # ── 3. 训练CatBoost Hurdle（两阶段零膨胀模型）──
+    print("\n[3/6] 训练 CatBoost Hurdle...")
     for target in TARGETS:
         print(f"\n  CatBoost Hurdle — 目标: {target}")
         y_raw = df_train[target].astype(float)
@@ -616,8 +567,20 @@ def main():
         print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
               f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
 
-    # ── 5. 训练LightGBM ──
-    print("\n[5/7] 训练 LightGBM...")
+        comparison_rows.append({
+            'model': 'CB Hurdle',
+            'model_type': 'CB_Hurdle',
+            'target': target,
+            **{k: v for k, v in info.items() if k not in
+               ['valid_poisson', 'valid_rmse', 'valid_mae']},
+            'valid_poisson': info['valid_poisson'],
+            'valid_rmse': info['valid_rmse'],
+            'valid_mae': info['valid_mae'],
+            'notes': f'train={len(X_train)}, valid={len(X_valid)}',
+        })
+
+    # ── 4. 训练LightGBM ──
+    print("\n[4/6] 训练 LightGBM...")
     for target in TARGETS:
         print(f"\n  LightGBM — 目标: {target}")
         y_raw = df_train[target].astype(float)
@@ -641,7 +604,7 @@ def main():
               f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
 
     # ── 6. 训练Random Forest ──
-    print("\n[6/7] 训练 Random Forest...")
+    print("\n[5/6] 训练 Random Forest...")
     for target in TARGETS:
         print(f"\n  Random Forest — 目标: {target}")
         y_raw = df_train[target].astype(float)
@@ -666,7 +629,7 @@ def main():
               f"RMSE={info['valid_rmse']:.4f}, 耗时={info['training_seconds']}s")
 
     # ── 7. 测试集预测与汇总 ──
-    print("\n[7/7] 测试集预测与汇总...")
+    print("\n[6/6] 测试集预测与汇总...")
 
     # 构建测试集预测DataFrame（合并文件）
     pred_df = df_test[['h3', 'datetime']].copy() if 'datetime' in df_test.columns else df_test[['h3']].copy()

@@ -340,6 +340,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     )
     # --- Stage 3: Joint error evaluation (soft product, pre-threshold) ---
     print(f"\n--- Joint Evaluation: P(Demand) * E(Quantity) ---")
+    eps = 1e-6  # 用于 Poisson deviance 的安全裁剪（y_pred 必须 > 0）
     prob_valid = classifier.predict_proba(X_valid)[:, 1]
     val_valid = regressor.predict(X_valid)
 
@@ -347,7 +348,8 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     val_valid = np.clip(val_valid, 0, None)
 
     soft_pred = prob_valid * val_valid
-    soft_poisson = mean_poisson_deviance(y_valid_raw, soft_pred)
+    soft_pred_safe = np.clip(soft_pred, eps, None)  # Poisson deviance 要求 y_pred > 0
+    soft_poisson = mean_poisson_deviance(y_valid_raw, soft_pred_safe)
 
     classifier_logloss = log_loss(y_valid_bin, prob_valid)
     regressor_poisson_pos = mean_poisson_deviance(y_valid_pos, regressor.predict(X_valid_pos))
@@ -358,7 +360,6 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     # 否则预测 P(demand>0) × E(demand | demand>0)。
     # 优化目标：最小化 Poisson deviance。
     print(f"\n--- Stage 4: Optimizing zero-decision threshold τ ---")
-    eps = 1e-6
     best_threshold = 0.0  # τ=0 等价于不做截断（回退到 soft product）
     best_final_poisson = soft_poisson
     best_zero_recall = 0.0
@@ -370,7 +371,10 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     for tau in np.arange(0.01, 0.91, 0.02):
         pred_zero_mask = prob_valid < tau
         thresh_pred = np.where(pred_zero_mask, 0.0, soft_pred)
-        thresh_poisson = mean_poisson_deviance(y_valid_raw, thresh_pred)
+        # mean_poisson_deviance 要求 y_pred > 0（log(0) 未定义），
+        # 裁剪到 eps 保留不同 τ 之间的相对排序，同时满足 API 要求。
+        thresh_pred_safe = np.clip(thresh_pred, eps, None)
+        thresh_poisson = mean_poisson_deviance(y_valid_raw, thresh_pred_safe)
 
         if thresh_poisson < best_final_poisson:
             best_final_poisson = thresh_poisson
