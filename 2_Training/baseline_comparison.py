@@ -1,27 +1,30 @@
 """
 基准模型对比脚本：在完全相同的训练/验证/测试划分下，训练并评估四种架构，
-输出对比表、合并预测文件以及各模型的独立预测集。
+输出对比表、合并预测文件、各模型独立预测集以及零膨胀专项分析。
 
-四种架构（全部由本脚本训练，使用代表性默认配置）：
-  (1) CatBoost      — 单阶段Poisson回归
-  (2) CatBoost Hurdle — 两阶段Hurdle模型
-  (3) LightGBM       — 单阶段RMSE回归
-  (4) Random Forest  — 单阶段RMSE回归
+四种架构（全部由本脚本训练，使用优化后的代表性默认配置）：
+  (1) CatBoost      — 单阶段Poisson回归（lr=0.02, depth=10, od_wait=80）
+  (2) CatBoost Hurdle — 两阶段Hurdle模型（lr=0.02, depth=10, od_wait=80）
+  (3) LightGBM       — 单阶段Poisson回归（lr=0.03, num_leaves=63）
+  (4) Random Forest  — 单阶段回归（n=1500, depth=22, min_leaf=3）
 
 实验设计原则：
   - 四种架构使用完全相同的训练/验证时间切分（前80%训练，后20%验证）
   - 使用完全相同的特征集
+  - CB/CB_Hurdle/LightGBM 统一使用 Poisson 损失（公平对比）
   - 统一以Poisson偏差作为核心对比指标
+  - 零膨胀专项指标（Zero Recall/Precision/F1, 条件RMSE/Poisson）衡量零值处理能力
   - 对比表中CatBoost和CB_Hurdle的结果优先读取已有的training_summary.csv（最优超参）
   - 预测集由本脚本独立训练的模型产生，确保输出完全对齐
 
 输出文件：
   (A) baseline_comparison.csv — 四种架构的参数与性能对比（每行一个模型×目标）
   (B) baseline_test_predictions.csv — 四种架构在测试集上的预测值汇总（含真实值）
-  (C) prediction_CatBoost.csv — CatBoost 独立预测集（Grid_Utility 格式）
-  (D) prediction_CB_Hurdle.csv — CatBoost Hurdle 独立预测集（Grid_Utility 格式）
-  (E) prediction_LightGBM.csv — LightGBM 独立预测集（Grid_Utility 格式）
-  (F) prediction_RandomForest.csv — Random Forest 独立预测集（Grid_Utility 格式）
+  (C) baseline_zero_inflation_metrics.csv — 零膨胀专项指标（Zero F1, 条件RMSE/Poisson等）
+  (D) prediction_CatBoost.csv — CatBoost 独立预测集（Grid_Utility 格式）
+  (E) prediction_CB_Hurdle.csv — CatBoost Hurdle 独立预测集（Grid_Utility 格式）
+  (F) prediction_LightGBM.csv — LightGBM 独立预测集（Grid_Utility 格式）
+  (G) prediction_RandomForest.csv — Random Forest 独立预测集（Grid_Utility 格式）
 
 用法：
     python 2_Training/baseline_comparison.py \
@@ -130,6 +133,71 @@ def compute_metrics(y_true, y_pred) -> Dict:
         'Poisson': mean_poisson_deviance(y_true, y_pred),
         'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
         'MAE': mean_absolute_error(y_true, y_pred),
+    }
+
+
+def compute_zero_inflated_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict:
+    """零膨胀场景专项指标：将预测误差按真实值是否为零分解。
+
+    返回指标说明：
+      - zero_ratio_true / zero_ratio_pred : 真实/预测零值占比
+      - zero_recall   : 真实零值中被正确预测为 (<1e-6) 的比例
+      - zero_precision: 预测为 (<1e-6) 的样本中真实为零的比例
+      - zero_f1       : zero_recall 与 zero_precision 的调和平均
+      - rmse_on_zero / rmse_on_positive : 按真实值分解的 RMSE
+      - poisson_on_zero / poisson_on_positive : 按真实值分解的 Poisson
+      - mae_on_zero / mae_on_positive : 按真实值分解的 MAE
+    """
+    y_pred = np.clip(y_pred, 0, None)
+    eps = 1e-6
+
+    mask_true_zero = y_true <= eps
+    mask_true_pos = y_true > eps
+    mask_pred_zero = y_pred <= eps
+
+    n_total = len(y_true)
+    n_true_zero = mask_true_zero.sum()
+    n_pred_zero = mask_pred_zero.sum()
+    n_correct_zero = (mask_true_zero & mask_pred_zero).sum()
+
+    # Level 1: 零膨胀特征
+    zero_ratio_true = n_true_zero / n_total
+    zero_ratio_pred = n_pred_zero / n_total
+
+    # Level 2: 零值判别 (positive class = zero)
+    zero_recall = n_correct_zero / n_true_zero if n_true_zero > 0 else np.nan
+    zero_precision = n_correct_zero / n_pred_zero if n_pred_zero > 0 else np.nan
+    zero_f1 = (2 * zero_recall * zero_precision / (zero_recall + zero_precision)
+               if (zero_recall + zero_precision) > 0 else np.nan)
+
+    # Level 3: 条件误差分解
+    def _safe_poisson(yt, yp):
+        return mean_poisson_deviance(yt, yp) if len(yt) > 0 else np.nan
+
+    def _safe_rmse(yt, yp):
+        return np.sqrt(mean_squared_error(yt, yp)) if len(yt) > 0 else np.nan
+
+    def _safe_mae(yt, yp):
+        return mean_absolute_error(yt, yp) if len(yt) > 0 else np.nan
+
+    return {
+        # 数据特征
+        'zero_ratio_true': round(zero_ratio_true, 4),
+        'zero_ratio_pred': round(zero_ratio_pred, 4),
+        'zero_ratio_gap': round(abs(zero_ratio_pred - zero_ratio_true), 4),
+        # 零值判别
+        'zero_recall': round(zero_recall, 4) if not np.isnan(zero_recall) else np.nan,
+        'zero_precision': round(zero_precision, 4) if not np.isnan(zero_precision) else np.nan,
+        'zero_f1': round(zero_f1, 4) if not np.isnan(zero_f1) else np.nan,
+        # 条件误差 — RMSE
+        'rmse_on_zero': round(_safe_rmse(y_true[mask_true_zero], y_pred[mask_true_zero]), 4),
+        'rmse_on_positive': round(_safe_rmse(y_true[mask_true_pos], y_pred[mask_true_pos]), 4),
+        # 条件误差 — Poisson
+        'poisson_on_zero': round(_safe_poisson(y_true[mask_true_zero], y_pred[mask_true_zero]), 4),
+        'poisson_on_positive': round(_safe_poisson(y_true[mask_true_pos], y_pred[mask_true_pos]), 4),
+        # 条件误差 — MAE
+        'mae_on_zero': round(_safe_mae(y_true[mask_true_zero], y_pred[mask_true_zero]), 4),
+        'mae_on_positive': round(_safe_mae(y_true[mask_true_pos], y_pred[mask_true_pos]), 4),
     }
 
 
@@ -248,13 +316,15 @@ def train_lightgbm(
     X_valid = _prepare_lgb_data(X_valid)
 
     params = {
-        'objective': 'regression',
-        'metric': 'rmse',
+        'objective': 'poisson',          # 与 CB/CB_Hurdle 一致的计数损失
+        'metric': 'poisson',
         'boosting_type': 'gbdt',
-        'learning_rate': 0.05,
-        'num_leaves': 127,
-        'min_child_samples': 20,
+        'learning_rate': 0.03,           # 降低学习率 → 更多迭代空间
+        'num_leaves': 63,                # 与独立 LightGBM_train.py 一致
+        'min_child_samples': 10,         # 更细粒度分裂 → 更好捕捉零值模式
         'feature_fraction': 0.8,
+        'subsample': 0.8,                # 行采样 → 防过拟合
+        'subsample_freq': 1,
         'n_jobs': -1,
         'verbose': -1,
         'random_state': 42,
@@ -271,8 +341,8 @@ def train_lightgbm(
         valid_sets=[lgb_valid],
         valid_names=['valid'],
         callbacks=[
-            lgb.early_stopping(stopping_rounds=100),
-            lgb.log_evaluation(period=0),
+            lgb.early_stopping(stopping_rounds=150),  # 更耐心的早停
+            lgb.log_evaluation(period=100),
         ],
     )
     elapsed = time.time() - t_start
@@ -284,6 +354,7 @@ def train_lightgbm(
         'learning_rate': params['learning_rate'],
         'num_leaves': params['num_leaves'],
         'min_child_samples': params['min_child_samples'],
+        'subsample': params['subsample'],
         'best_iteration': model.best_iteration,
         'training_seconds': round(elapsed, 1),
         **{f'valid_{k.lower()}': v for k, v in metrics.items()},
@@ -313,9 +384,9 @@ def train_random_forest(
 
     t_start = time.time()
     model = RandomForestRegressor(
-        n_estimators=1000,
-        max_depth=18,
-        min_samples_leaf=5,
+        n_estimators=1500,              # 更多树 → 更稳定
+        max_depth=22,                   # 更深 → 更好捕捉零/非零交互模式
+        min_samples_leaf=3,             # 更细粒度 → 低需求区域更精确
         max_features='sqrt',
         n_jobs=-1,
         verbose=0,
@@ -328,9 +399,9 @@ def train_random_forest(
     metrics = compute_metrics(y_valid, y_pred)
 
     info = {
-        'n_estimators': 1000,
-        'max_depth': 18,
-        'min_samples_leaf': 5,
+        'n_estimators': 1500,
+        'max_depth': 22,
+        'min_samples_leaf': 3,
         'best_iteration': np.nan,
         'training_seconds': round(elapsed, 1),
         **{f'valid_{k.lower()}': v for k, v in metrics.items()},
@@ -358,13 +429,13 @@ def train_catboost(
     model = cb.CatBoostRegressor(
         loss_function='Poisson',
         eval_metric='Poisson',
-        learning_rate=0.03,
-        depth=9,
+        learning_rate=0.02,           # 更低学习率 → 更平滑收敛
+        depth=10,                      # 与 CB_Hurdle 对齐
         l2_leaf_reg=4.0,
-        iterations=3000,
+        iterations=5000,               # 更多迭代空间
         cat_features=cat_indices,
         od_type='Iter',
-        od_wait=50,
+        od_wait=80,                    # 更耐心 → 避免过早停止
         random_seed=42,
         task_type='CPU',
         thread_count=-1,
@@ -378,10 +449,10 @@ def train_catboost(
     metrics = compute_metrics(y_valid, y_pred)
 
     info = {
-        'learning_rate': 0.03,
-        'depth': 9,
+        'learning_rate': 0.02,
+        'depth': 10,
         'l2_leaf_reg': 4.0,
-        'od_wait': 50,
+        'od_wait': 80,
         'best_iteration': model.get_best_iteration(),
         'training_seconds': round(elapsed, 1),
         **{f'valid_{k.lower()}': v for k, v in metrics.items()},
@@ -412,13 +483,13 @@ def train_cb_hurdle(
     classifier = cb.CatBoostClassifier(
         loss_function='Logloss',
         eval_metric='Logloss',
-        learning_rate=0.03,
+        learning_rate=0.02,           # 更低学习率
         depth=10,
         l2_leaf_reg=4.0,
-        iterations=3000,
+        iterations=5000,               # 更多迭代空间
         cat_features=cat_indices,
         od_type='Iter',
-        od_wait=50,
+        od_wait=80,                    # 更耐心
         random_seed=42,
         task_type='CPU',
         thread_count=-1,
@@ -441,13 +512,13 @@ def train_cb_hurdle(
     regressor = cb.CatBoostRegressor(
         loss_function='Poisson',
         eval_metric='Poisson',
-        learning_rate=0.03,
+        learning_rate=0.02,           # 更低学习率
         depth=10,
         l2_leaf_reg=4.0,
-        iterations=3000,
+        iterations=5000,               # 更多迭代空间
         cat_features=cat_indices,
         od_type='Iter',
-        od_wait=50,
+        od_wait=80,                    # 更耐心
         random_seed=42,
         task_type='CPU',
         thread_count=-1,
@@ -466,10 +537,10 @@ def train_cb_hurdle(
     metrics = compute_metrics(y_valid, final_pred)
 
     info = {
-        'learning_rate': 0.03,
+        'learning_rate': 0.02,
         'depth': 10,
         'l2_leaf_reg': 4.0,
-        'od_wait': 50,
+        'od_wait': 80,
         'best_iteration': regressor.get_best_iteration(),
         'training_seconds': round(elapsed, 1),
         **{f'valid_{k.lower()}': v for k, v in metrics.items()},
@@ -603,6 +674,9 @@ def main():
     # 存储每个模型的预测值，用于后续分别保存
     all_model_preds: Dict[str, Dict[str, np.ndarray]] = {}  # {model_name: {'rent': arr, 'return': arr}}
 
+    # 零膨胀指标收集
+    zi_metrics_rows: List[Dict] = []
+
     for target in TARGETS:
         y_test = df_test[target].astype(float)
         pred_df[f'{target}_true'] = y_test.values
@@ -645,8 +719,12 @@ def main():
             pred_df[f'{target}_rf'] = rf_pred
             all_model_preds.setdefault('RandomForest', {})[target] = rf_pred
 
-        # 测试集指标
-        print(f"\n  测试集指标 — {target}:")
+        # ── 全局指标 + 零膨胀指标 ──
+        print(f"\n{'='*60}")
+        print(f"  测试集指标 — {target}")
+        print(f"  真实零值占比: {(y_test <= 1e-6).mean():.2%}")
+        print(f"{'='*60}")
+
         model_col_map = {
             'CatBoost': f'{target}_cb',
             'CB Hurdle': f'{target}_cb_hurdle',
@@ -655,9 +733,28 @@ def main():
         }
         for model_label, col in model_col_map.items():
             if col in pred_df.columns:
-                m = compute_metrics(y_test, pred_df[col])
-                print(f"    {model_label:18s}: Poisson={m['Poisson']:.4f}, "
-                      f"RMSE={m['RMSE']:.4f}, MAE={m['MAE']:.4f}")
+                y_pred = pred_df[col].values
+                m = compute_metrics(y_test, y_pred)
+                zi = compute_zero_inflated_metrics(y_test, y_pred)
+
+                # 全局指标
+                print(f"\n  ┌─ {model_label}")
+                print(f"  │  Poisson={m['Poisson']:.4f}  RMSE={m['RMSE']:.4f}  MAE={m['MAE']:.4f}")
+                # 零膨胀指标
+                print(f"  │  --- 零膨胀分解 ---")
+                print(f"  │  预测零值比: {zi['zero_ratio_pred']:.2%}  (真实: {zi['zero_ratio_true']:.2%})  gap: {zi['zero_ratio_gap']:.4f}")
+                print(f"  │  Zero Recall={zi['zero_recall']:.4f}  Precision={zi['zero_precision']:.4f}  F1={zi['zero_f1']:.4f}")
+                print(f"  │  RMSE_on_zero={zi['rmse_on_zero']:.4f}  RMSE_on_pos={zi['rmse_on_positive']:.4f}")
+                print(f"  │  Poisson_on_zero={zi['poisson_on_zero']:.4f}  Poisson_on_pos={zi['poisson_on_positive']:.4f}")
+                print(f"  └─ MAE_on_zero={zi['mae_on_zero']:.4f}  MAE_on_pos={zi['mae_on_positive']:.4f}")
+
+                # 收集到汇总表
+                zi_metrics_rows.append({
+                    'model': model_label,
+                    'target': target,
+                    **{f'test_{k}': v for k, v in m.items()},
+                    **{f'zi_{k}': v for k, v in zi.items()},
+                })
 
     # ── 保存合并预测文件 ──
     pred_path = os.path.join(args.output_dir, 'baseline_test_predictions.csv')
@@ -678,13 +775,19 @@ def main():
         else:
             print(f"  [{model_name}] 跳过：无可用预测结果。")
 
+    # ── 保存零膨胀指标文件 ──
+    zi_path = os.path.join(args.output_dir, 'baseline_zero_inflation_metrics.csv')
+    zi_df = pd.DataFrame(zi_metrics_rows)
+    zi_df.to_csv(zi_path, index=False)
+    print(f"\n  零膨胀专项指标已保存至: {zi_path}")
+
     # 构建对比文件
     comp_df = pd.DataFrame(comparison_rows)
 
     # 统一列顺序：模型标识在前，超参数居中，性能指标在后
     priority_cols = ['model', 'model_type', 'target',
                      'learning_rate', 'depth', 'l2_leaf_reg', 'od_wait',
-                     'num_leaves', 'min_child_samples',
+                     'num_leaves', 'min_child_samples', 'subsample',
                      'n_estimators', 'max_depth', 'min_samples_leaf',
                      'best_iteration',
                      'valid_poisson', 'valid_rmse', 'valid_mae',
