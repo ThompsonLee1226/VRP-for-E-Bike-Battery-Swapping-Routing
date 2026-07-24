@@ -101,12 +101,14 @@ def load_and_preprocess(file_path, scale=None):
     df = add_feature_engineering(df)
 
     features = [
-        'h3', 'temperature', 'wind_level', 'rain_level', 
+        'h3', 'temperature', 'wind_level', 'rain_level',
         'month', 'day_of_week', 'is_weekend', 'hour',
         'rent_mean_7d', 'return_mean_7d', 'lag_nb_rent', 'lag_nb_return',
         'normal_power_bike_count', 'soon_low_power_bike_count', 'low_power_bike_count',
         'latitude', 'longitude',
-        'temp_x_rain', 'available_power_bike_gap', 'is_rush_hour'
+        'temp_x_rain', 'available_power_bike_gap', 'is_rush_hour',
+        'lag_rent_is_zero', 'lag_return_is_zero',
+        'rent_mean_7d_low', 'return_mean_7d_low'
     ]
     
     return df, features
@@ -129,6 +131,29 @@ def add_feature_engineering(df):
         df['available_power_bike_gap'] = df['normal_power_bike_count'] - df['low_power_bike_count']
     else:
         df['available_power_bike_gap'] = 0.0
+
+    # ── 零需求指示特征：帮助分类器识别零需求场景 ──
+    # 上一时刻的需求是否为零（强零需求信号）
+    if 'lag_nb_rent' in df.columns:
+        df['lag_rent_is_zero'] = (df['lag_nb_rent'] == 0).astype(int)
+    else:
+        df['lag_rent_is_zero'] = 0
+
+    if 'lag_nb_return' in df.columns:
+        df['lag_return_is_zero'] = (df['lag_nb_return'] == 0).astype(int)
+    else:
+        df['lag_return_is_zero'] = 0
+
+    # 7日滚动均值是否极低（<0.1 视为"几乎无需求"区域）
+    if 'rent_mean_7d' in df.columns:
+        df['rent_mean_7d_low'] = (df['rent_mean_7d'] < 0.1).astype(int)
+    else:
+        df['rent_mean_7d_low'] = 0
+
+    if 'return_mean_7d' in df.columns:
+        df['return_mean_7d_low'] = (df['return_mean_7d'] < 0.1).astype(int)
+    else:
+        df['return_mean_7d_low'] = 0
 
     return df
 
@@ -313,40 +338,97 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         metric_key="Poisson",
         metric_label="Poisson",
     )
-    # --- Stage 3: Joint error evaluation ---
+    # --- Stage 3: Joint error evaluation (soft product, pre-threshold) ---
     print(f"\n--- Joint Evaluation: P(Demand) * E(Quantity) ---")
     prob_valid = classifier.predict_proba(X_valid)[:, 1]
     val_valid = regressor.predict(X_valid)
-    
+
     # Note: No np.expm1() used here because Poisson output is already the expected value.
     val_valid = np.clip(val_valid, 0, None)
-    
-    final_pred = prob_valid * val_valid
-    final_poisson = mean_poisson_deviance(y_valid_raw, final_pred)
+
+    soft_pred = prob_valid * val_valid
+    soft_poisson = mean_poisson_deviance(y_valid_raw, soft_pred)
 
     classifier_logloss = log_loss(y_valid_bin, prob_valid)
     regressor_poisson_pos = mean_poisson_deviance(y_valid_pos, regressor.predict(X_valid_pos))
 
+    # --- Stage 4: Optimize zero-decision threshold τ ---
+    # 核心改进：在验证集上搜索最优阈值 τ。
+    # 当 P(demand>0 | X) < τ 时，强制预测为 0；
+    # 否则预测 P(demand>0) × E(demand | demand>0)。
+    # 优化目标：最小化 Poisson deviance。
+    print(f"\n--- Stage 4: Optimizing zero-decision threshold τ ---")
+    eps = 1e-6
+    best_threshold = 0.0  # τ=0 等价于不做截断（回退到 soft product）
+    best_final_poisson = soft_poisson
+    best_zero_recall = 0.0
+    best_zero_precision = 0.0
+    best_pred_zero_ratio = 0.0
+    true_zero_ratio = (y_valid_raw <= eps).mean()
+
+    # 在 [0.01, 0.90] 范围内以步长 0.02 搜索最优阈值
+    for tau in np.arange(0.01, 0.91, 0.02):
+        pred_zero_mask = prob_valid < tau
+        thresh_pred = np.where(pred_zero_mask, 0.0, soft_pred)
+        thresh_poisson = mean_poisson_deviance(y_valid_raw, thresh_pred)
+
+        if thresh_poisson < best_final_poisson:
+            best_final_poisson = thresh_poisson
+            best_threshold = tau
+            n_true_zero = (y_valid_raw <= eps).sum()
+            n_pred_zero = pred_zero_mask.sum()
+            n_correct_zero = ((y_valid_raw <= eps) & pred_zero_mask).sum()
+            best_zero_recall = n_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
+            best_zero_precision = n_correct_zero / n_pred_zero if n_pred_zero > 0 else 0.0
+            best_pred_zero_ratio = n_pred_zero / len(y_valid_raw)
+
+    # 应用最优阈值得到最终验证集预测
+    final_pred = np.where(prob_valid < best_threshold, 0.0, soft_pred)
+    final_poisson = best_final_poisson
+
+    zero_f1 = (2 * best_zero_recall * best_zero_precision / (best_zero_recall + best_zero_precision)
+               if (best_zero_recall + best_zero_precision) > 0 else 0.0)
+
     print(f"🎉 [{target_name}] Hurdle model training completed!")
-    print(f"📌 Classifier Logloss (valid): {classifier_logloss:.4f}")
-    print(f"📌 Regressor Poisson deviance on positive samples (valid): {regressor_poisson_pos:.4f}")
-    print(f"🎯 Final Joint Validation Poisson deviance: {final_poisson:.4f}")
+    print(f"📌 Classifier Logloss (valid):        {classifier_logloss:.4f}")
+    print(f"📌 Regressor Poisson on positives:    {regressor_poisson_pos:.4f}")
+    print(f"📌 Soft-product Poisson (τ=0):        {soft_poisson:.4f}")
+    print(f"─── Zero-Threshold Optimization ───")
+    print(f"🎯 Optimal threshold τ*:              {best_threshold:.2f}")
+    print(f"🎯 Final Poisson (hard-threshold):    {final_poisson:.4f}  "
+          f"(Δ={soft_poisson - final_poisson:+.4f})")
+    print(f"📊 True zero ratio:                   {true_zero_ratio:.2%}")
+    print(f"📊 Predicted zero ratio (w/ τ*):      {best_pred_zero_ratio:.2%}")
+    print(f"📊 Zero Recall:                       {best_zero_recall:.4f}")
+    print(f"📊 Zero Precision:                    {best_zero_precision:.4f}")
+    print(f"📊 Zero F1:                           {zero_f1:.4f}")
     # ----------------------------
     summary = {
         'target_name': target_name,
         'best_iteration': regressor.get_best_iteration(),
         'best_test': regressor.get_best_score().get('validation', {}).get('Poisson'),
         'final_metric': final_poisson,
+        'soft_poisson': soft_poisson,
         'classifier_logloss': classifier_logloss,
         'regressor_poisson_pos': regressor_poisson_pos,
+        'hurdle_threshold': best_threshold,
+        'valid_zero_recall': best_zero_recall,
+        'valid_zero_precision': best_zero_precision,
+        'valid_zero_f1': zero_f1,
+        'valid_pred_zero_ratio': best_pred_zero_ratio,
+        'valid_true_zero_ratio': true_zero_ratio,
         'train_size': len(X_train),
         'valid_size': len(X_valid),
         'train_time_range': train_time_range,
         'valid_time_range': valid_time_range,
     }
 
-    # Pack and return both models
-    return {'classifier': classifier, 'regressor': regressor}, summary
+    # Pack and return models (with threshold)
+    return {
+        'classifier': classifier,
+        'regressor': regressor,
+        'threshold': best_threshold
+    }, summary
 
 
 def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
@@ -388,15 +470,23 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
 
     X_test = test_df[feature_cols]
 
-    # === Rent Prediction (Hurdle: P(rent>0) * E(rent | rent>0)) ===
+    # === Rent Prediction (Hurdle: 若 P(rent>0) < τ 则硬判为零) ===
     rent_prob = models_dict['rent']['classifier'].predict_proba(X_test)[:, 1]
     rent_val = models_dict['rent']['regressor'].predict(X_test)
-    rent_pred = np.clip(rent_prob * rent_val, 0, None)
+    rent_soft = np.clip(rent_prob * rent_val, 0, None)
+    rent_threshold = models_dict['rent'].get('threshold', 0.0)
+    rent_pred = np.where(rent_prob < rent_threshold, 0.0, rent_soft)
+    print(f"  rent 阈值 τ={rent_threshold:.2f}, "
+          f"预测零值占比={float((rent_pred <= 1e-6).mean()):.2%}")
 
-    # === Return Prediction (Hurdle: P(return>0) * E(return | return>0)) ===
+    # === Return Prediction (Hurdle: 若 P(return>0) < τ 则硬判为零) ===
     return_prob = models_dict['return']['classifier'].predict_proba(X_test)[:, 1]
     return_val = models_dict['return']['regressor'].predict(X_test)
-    return_pred = np.clip(return_prob * return_val, 0, None)
+    return_soft = np.clip(return_prob * return_val, 0, None)
+    return_threshold = models_dict['return'].get('threshold', 0.0)
+    return_pred = np.where(return_prob < return_threshold, 0.0, return_soft)
+    print(f"  return 阈值 τ={return_threshold:.2f}, "
+          f"预测零值占比={float((return_pred <= 1e-6).mean()):.2%}")
 
     # --- Assemble output in Grid_Utility format ---
     result_df = pd.DataFrame()

@@ -135,19 +135,90 @@ Early stopping, best iteration is:
   时间切分: train[2025-09-10 00:00:00 -> 2025-10-14 19:00:00], valid[2025-10-14 19:00:00 -> 2025-10-23 11:00:00], train=546336, valid=136584
     验证集: Poisson=1.1437, RMSE=2.3684, 耗时=10.4s
 
+============================================================
 [7/7] 测试集预测与汇总...
 
-  测试集指标 — rent:
-    CatBoost          : Poisson=1.0681, RMSE=2.2511, MAE=1.0734
-    CB Hurdle         : Poisson=1.0217, RMSE=2.2563, MAE=1.0558
-    LightGBM          : Poisson=1.2287, RMSE=2.2590, MAE=1.1794
-    Random Forest     : Poisson=1.0450, RMSE=2.2300, MAE=1.0807
+============================================================
+  测试集指标 — rent
+  真实零值占比: 56.16%
+============================================================
 
-  测试集指标 — return:
-    CatBoost          : Poisson=1.1751, RMSE=2.4459, MAE=1.1519
-    CB Hurdle         : Poisson=1.1212, RMSE=2.4231, MAE=1.1047
-    LightGBM          : Poisson=1.3696, RMSE=2.4438, MAE=1.2603
-    Random Forest     : Poisson=1.1504, RMSE=2.3594, MAE=1.1432
+  ┌─ CatBoost
+  │  Poisson=1.0581  RMSE=2.2717  MAE=1.0778
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 56.16%)  gap: 0.5616
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.6775  RMSE_on_pos=3.3442
+  │  Poisson_on_zero=0.6123  Poisson_on_pos=1.6292
+  └─ MAE_on_zero=0.3061  MAE_on_pos=2.0663
+
+  ┌─ CB Hurdle
+  │  Poisson=1.0166  RMSE=2.2455  MAE=1.0511
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 56.16%)  gap: 0.5616
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.6769  RMSE_on_pos=3.3036
+  │  Poisson_on_zero=0.6555  Poisson_on_pos=1.4793
+  └─ MAE_on_zero=0.3277  MAE_on_pos=1.9777
+
+  ┌─ LightGBM
+  │  Poisson=1.0798  RMSE=2.3328  MAE=1.1252
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 56.16%)  gap: 0.5616
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.7239  RMSE_on_pos=3.4266
+  │  Poisson_on_zero=0.7295  Poisson_on_pos=1.5284
+  └─ MAE_on_zero=0.3648  MAE_on_pos=2.0992
+
+  ┌─ Random Forest
+  │  Poisson=1.0594  RMSE=2.2458  MAE=1.0968
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 56.16%)  gap: 0.5616
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.7748  RMSE_on_pos=3.2765
+  │  Poisson_on_zero=0.7356  Poisson_on_pos=1.4743
+  └─ MAE_on_zero=0.3678  MAE_on_pos=2.0306
+
+============================================================
+  测试集指标 — return
+  真实零值占比: 55.96%
+============================================================
+
+  ┌─ CatBoost
+  │  Poisson=1.1602  RMSE=2.4258  MAE=1.1378
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 55.96%)  gap: 0.5596
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.7207  RMSE_on_pos=3.5638
+  │  Poisson_on_zero=0.6859  Poisson_on_pos=1.7627
+  └─ MAE_on_zero=0.3430  MAE_on_pos=2.1478
+
+  ┌─ CB Hurdle
+  │  Poisson=1.1262  RMSE=2.4440  MAE=1.1099
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 55.96%)  gap: 0.5596
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.6876  RMSE_on_pos=3.6003
+  │  Poisson_on_zero=0.7233  Poisson_on_pos=1.6381
+  └─ MAE_on_zero=0.3616  MAE_on_pos=2.0606
+
+  ┌─ LightGBM
+  │  Poisson=1.2263  RMSE=2.7297  MAE=1.2428
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 55.96%)  gap: 0.5596
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.7653  RMSE_on_pos=4.0217
+  │  Poisson_on_zero=0.8123  Poisson_on_pos=1.7524
+  └─ MAE_on_zero=0.4061  MAE_on_pos=2.3058
+
+  ┌─ Random Forest
+  │  Poisson=1.1668  RMSE=2.3758  MAE=1.1608
+  │  --- 零膨胀分解 ---
+  │  预测零值比: 0.00%  (真实: 55.96%)  gap: 0.5596
+  │  Zero Recall=0.0000  Precision=nan  F1=nan
+  │  RMSE_on_zero=0.8281  RMSE_on_pos=3.4561
+  │  Poisson_on_zero=0.8605  Poisson_on_pos=1.5560
+  └─ MAE_on_zero=0.4302  MAE_on_pos=2.0890
 
   合并测试集预测已保存至: 2_Training/Baseline_Comparison_Results/baseline_test_predictions.csv
 
@@ -156,6 +227,8 @@ Early stopping, best iteration is:
   [CB_Hurdle] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_CB_Hurdle.csv
   [LightGBM] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_LightGBM.csv
   [RandomForest] 预测集已保存至: 2_Training/Baseline_Comparison_Results/prediction_RandomForest.csv
+
+  零膨胀专项指标已保存至: 2_Training/Baseline_Comparison_Results/baseline_zero_inflation_metrics.csv
   模型对比表已保存至: 2_Training/Baseline_Comparison_Results/baseline_comparison.csv
 
 ============================================================
@@ -163,17 +236,16 @@ Early stopping, best iteration is:
 ============================================================
 
   [rent]
-    CB Hurdle             Poisson=0.9853
-    Random Forest         Poisson=1.0298
-    CB                    Poisson=1.0541
-    LightGBM              Poisson=1.2172
+    Random Forest         Poisson=1.0443
+    LightGBM              Poisson=1.0831
 
   [return]
-    CB Hurdle             Poisson=1.0953
-    Random Forest         Poisson=1.1437
-    CB                    Poisson=1.1687
-    LightGBM              Poisson=1.3637
+    Random Forest         Poisson=1.1598
+    LightGBM              Poisson=1.2370
 
+============================================================
+完成。
+============================================================
 ============================================================
 完成。
 ============================================================
