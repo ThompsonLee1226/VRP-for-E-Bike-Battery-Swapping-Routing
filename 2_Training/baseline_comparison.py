@@ -1,23 +1,27 @@
 """
 基准模型对比脚本：在完全相同的训练/验证/测试划分下，训练并评估四种架构，
-输出两份可直接用于论文的CSV文件。
+输出对比表、合并预测文件以及各模型的独立预测集。
 
-四种架构：
-  (1) CatBoost      — 单阶段Poisson回归（已由 CatBoost_train.py 完成）
-  (2) CatBoost Hurdle — 两阶段Hurdle模型   （已由 CB_Hurdle_train.py 完成）
-  (3) LightGBM       — 单阶段RMSE回归      （本脚本训练）
-  (4) Random Forest  — 单阶段RMSE回归      （本脚本训练）
+四种架构（全部由本脚本训练，使用代表性默认配置）：
+  (1) CatBoost      — 单阶段Poisson回归
+  (2) CatBoost Hurdle — 两阶段Hurdle模型
+  (3) LightGBM       — 单阶段RMSE回归
+  (4) Random Forest  — 单阶段RMSE回归
 
 实验设计原则：
   - 四种架构使用完全相同的训练/验证时间切分（前80%训练，后20%验证）
   - 使用完全相同的特征集
   - 统一以Poisson偏差作为核心对比指标
-  - CatBoost和CB_Hurdle的结果通过读取已有的training_summary.csv获取最优行
-  - LightGBM和Random Forest各使用一组有代表性的默认配置，不做参数扫描
+  - 对比表中CatBoost和CB_Hurdle的结果优先读取已有的training_summary.csv（最优超参）
+  - 预测集由本脚本独立训练的模型产生，确保输出完全对齐
 
 输出文件：
   (A) baseline_comparison.csv — 四种架构的参数与性能对比（每行一个模型×目标）
-  (B) baseline_test_predictions.csv — 四种架构在测试集上的预测值（含真实值）
+  (B) baseline_test_predictions.csv — 四种架构在测试集上的预测值汇总（含真实值）
+  (C) prediction_CatBoost.csv — CatBoost 独立预测集（Grid_Utility 格式）
+  (D) prediction_CB_Hurdle.csv — CatBoost Hurdle 独立预测集（Grid_Utility 格式）
+  (E) prediction_LightGBM.csv — LightGBM 独立预测集（Grid_Utility 格式）
+  (F) prediction_RandomForest.csv — Random Forest 独立预测集（Grid_Utility 格式）
 
 用法：
     python 2_Training/baseline_comparison.py \
@@ -59,6 +63,14 @@ FEATURES = [
 ]
 
 TARGETS = ['rent', 'return']
+
+# ── Grid_Utility 输出格式（与 3_Optimization/Grid_Utility_Test.csv 列一致）────────
+GRID_UTILITY_META_COLS = [
+    'h3', 'latitude', 'longitude', 'datetime',
+    'month', 'day_of_week', 'is_weekend', 'hour',
+    'low_power_bike_count', 'soon_low_power_bike_count', 'normal_power_bike_count',
+]
+GRID_UTILITY_GT_COLS = ['rent', 'return']
 
 
 def add_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
@@ -119,6 +131,51 @@ def compute_metrics(y_true, y_pred) -> Dict:
         'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
         'MAE': mean_absolute_error(y_true, y_pred),
     }
+
+
+def save_model_predictions(
+    model_name: str,
+    rent_pred: np.ndarray,
+    return_pred: np.ndarray,
+    df_test_raw: pd.DataFrame,
+    output_dir: str,
+):
+    """将单个模型的预测结果保存为 Grid_Utility 格式的 CSV。
+
+    Parameters
+    ----------
+    model_name : 模型简称（如 'CatBoost', 'CB_Hurdle', 'LightGBM', 'RandomForest'）
+    rent_pred, return_pred : 预测数组
+    df_test_raw : 原始测试集 DataFrame（预处理前），用于提取元数据列
+    output_dir : 输出目录
+    """
+    result_df = pd.DataFrame()
+
+    # 1. 标识列 + 空间列
+    for col in ['h3', 'latitude', 'longitude']:
+        result_df[col] = df_test_raw[col].values if col in df_test_raw.columns else 0
+
+    # 2. 时间列
+    for col in ['datetime', 'month', 'day_of_week', 'is_weekend', 'hour']:
+        result_df[col] = df_test_raw[col].values if col in df_test_raw.columns else 0
+
+    # 3. 预测值
+    result_df['rent_pred'] = np.clip(rent_pred, 0, None)
+    result_df['return_pred'] = np.clip(return_pred, 0, None)
+
+    # 4. 车辆状态列
+    for col in ['low_power_bike_count', 'soon_low_power_bike_count', 'normal_power_bike_count']:
+        result_df[col] = df_test_raw[col].values if col in df_test_raw.columns else 0
+
+    # 5. 真实值（若测试集中存在）
+    for col in ['rent', 'return']:
+        result_df[col] = df_test_raw[col].values if col in df_test_raw.columns else 0
+
+    safe_name = model_name.replace(' ', '_').replace('/', '_')
+    out_path = os.path.join(output_dir, f'prediction_{safe_name}.csv')
+    result_df.to_csv(out_path, index=False)
+    print(f"  [{model_name}] 预测集已保存至: {out_path}")
+    return out_path
 
 
 # ── CatBoost / CB_Hurdle 结果读取 ───────────────────────────────────────
@@ -281,6 +338,145 @@ def train_random_forest(
     return model, info, h3_mapping
 
 
+# ── CatBoost 训练（单阶段Poisson回归）────────────────────────────────────
+
+def train_catboost(
+    X_train, y_train, X_valid, y_valid,
+    cat_features: Optional[List[str]] = None,
+) -> Tuple[object, Dict]:
+    """训练 CatBoost（代表性默认配置，单次运行）。
+
+    返回 (model, info)。
+    """
+    import catboost as cb
+
+    if cat_features is None:
+        cat_features = ['h3']
+    cat_indices = [list(X_train.columns).index(f) for f in cat_features if f in X_train.columns]
+
+    t_start = time.time()
+    model = cb.CatBoostRegressor(
+        loss_function='Poisson',
+        eval_metric='Poisson',
+        learning_rate=0.03,
+        depth=9,
+        l2_leaf_reg=4.0,
+        iterations=3000,
+        cat_features=cat_indices,
+        od_type='Iter',
+        od_wait=50,
+        random_seed=42,
+        task_type='CPU',
+        thread_count=-1,
+        allow_writing_files=False,
+        verbose=100,
+    )
+    model.fit(X_train, y_train, eval_set=(X_valid, y_valid), use_best_model=True)
+
+    elapsed = time.time() - t_start
+    y_pred = np.clip(model.predict(X_valid), 0, None)
+    metrics = compute_metrics(y_valid, y_pred)
+
+    info = {
+        'learning_rate': 0.03,
+        'depth': 9,
+        'l2_leaf_reg': 4.0,
+        'od_wait': 50,
+        'best_iteration': model.get_best_iteration(),
+        'training_seconds': round(elapsed, 1),
+        **{f'valid_{k.lower()}': v for k, v in metrics.items()},
+    }
+    return model, info
+
+
+# ── CatBoost Hurdle 训练（两阶段零膨胀模型）───────────────────────────────
+
+def train_cb_hurdle(
+    X_train, y_train, X_valid, y_valid,
+    cat_features: Optional[List[str]] = None,
+) -> Tuple[Dict[str, object], Dict]:
+    """训练 CatBoost Hurdle 模型（分类器 + 正样本回归器）。
+
+    返回 (model_dict, info)，其中 model_dict = {'classifier': ..., 'regressor': ...}。
+    """
+    import catboost as cb
+
+    if cat_features is None:
+        cat_features = ['h3']
+    cat_indices = [list(X_train.columns).index(f) for f in cat_features if f in X_train.columns]
+
+    # Stage 1: 分类器（预测 demand > 0）
+    y_train_bin = (y_train > 0).astype(int)
+    y_valid_bin = (y_valid > 0).astype(int)
+
+    classifier = cb.CatBoostClassifier(
+        loss_function='Logloss',
+        eval_metric='Logloss',
+        learning_rate=0.03,
+        depth=10,
+        l2_leaf_reg=4.0,
+        iterations=3000,
+        cat_features=cat_indices,
+        od_type='Iter',
+        od_wait=50,
+        random_seed=42,
+        task_type='CPU',
+        thread_count=-1,
+        allow_writing_files=False,
+        verbose=0,
+    )
+    t_start = time.time()
+    classifier.fit(X_train, y_train_bin, eval_set=(X_valid, y_valid_bin),
+                   use_best_model=True, verbose=100)
+
+    # Stage 2: 回归器（仅正样本）
+    mask_train_pos = y_train > 0
+    X_train_pos = X_train[mask_train_pos]
+    y_train_pos = y_train[mask_train_pos]
+
+    mask_valid_pos = y_valid > 0
+    X_valid_pos = X_valid[mask_valid_pos]
+    y_valid_pos = y_valid[mask_valid_pos]
+
+    regressor = cb.CatBoostRegressor(
+        loss_function='Poisson',
+        eval_metric='Poisson',
+        learning_rate=0.03,
+        depth=10,
+        l2_leaf_reg=4.0,
+        iterations=3000,
+        cat_features=cat_indices,
+        od_type='Iter',
+        od_wait=50,
+        random_seed=42,
+        task_type='CPU',
+        thread_count=-1,
+        allow_writing_files=False,
+        verbose=0,
+    )
+    regressor.fit(X_train_pos, y_train_pos, eval_set=(X_valid_pos, y_valid_pos),
+                  use_best_model=True, verbose=100)
+
+    elapsed = time.time() - t_start
+
+    # Joint prediction: P(demand>0) * E[demand | demand>0]
+    prob_valid = classifier.predict_proba(X_valid)[:, 1]
+    val_valid = np.clip(regressor.predict(X_valid), 0, None)
+    final_pred = np.clip(prob_valid * val_valid, 0, None)
+    metrics = compute_metrics(y_valid, final_pred)
+
+    info = {
+        'learning_rate': 0.03,
+        'depth': 10,
+        'l2_leaf_reg': 4.0,
+        'od_wait': 50,
+        'best_iteration': regressor.get_best_iteration(),
+        'training_seconds': round(elapsed, 1),
+        **{f'valid_{k.lower()}': v for k, v in metrics.items()},
+    }
+    return {'classifier': classifier, 'regressor': regressor}, info
+
+
 # ── 主流程 ────────────────────────────────────────────────────────────────
 
 def main():
@@ -295,9 +491,10 @@ def main():
 
     # ── 1. 加载并预处理数据 ──
     print("=" * 60)
-    print("[1/5] 加载数据...")
+    print("[1/7] 加载数据...")
     df_train = pd.read_csv(args.train_csv)
-    df_test = pd.read_csv(args.test_csv)
+    df_test_raw = pd.read_csv(args.test_csv)  # 保留原始副本，用于 Grid_Utility 格式输出
+    df_test = df_test_raw.copy()
 
     def preprocess(df: pd.DataFrame, name: str) -> pd.DataFrame:
         cols_to_drop = ['region_code', 'Unnamed: 21']
@@ -318,12 +515,38 @@ def main():
     rf_h3_mapping: Dict[str, dict] = {}  # {target: h3_mapping} — 训练集编码，测试时复用
 
     # ── 2. 读取CatBoost结果 ──
-    print("\n[2/5] 读取CatBoost / CB_Hurdle已有结果...")
+    print("\n[2/7] 读取CatBoost / CB_Hurdle已有结果...")
     cb_rows = load_catboost_results(args.cb_summary)
     comparison_rows.extend(cb_rows)
 
-    # ── 3. 训练LightGBM ──
-    print("\n[3/5] 训练 LightGBM...")
+    # ── 3. 训练CatBoost（单阶段Poisson回归）──
+    print("\n[3/7] 训练 CatBoost...")
+    for target in TARGETS:
+        print(f"\n  CatBoost — 目标: {target}")
+        y_raw = df_train[target].astype(float)
+        X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
+
+        model, info = train_catboost(X_train, y_train, X_valid, y_valid)
+        model_objects.setdefault('CatBoost', {})[target] = model
+
+        print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
+              f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
+
+    # ── 4. 训练CatBoost Hurdle（两阶段零膨胀模型）──
+    print("\n[4/7] 训练 CatBoost Hurdle...")
+    for target in TARGETS:
+        print(f"\n  CatBoost Hurdle — 目标: {target}")
+        y_raw = df_train[target].astype(float)
+        X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
+
+        model_dict, info = train_cb_hurdle(X_train, y_train, X_valid, y_valid)
+        model_objects.setdefault('CB_Hurdle', {})[target] = model_dict
+
+        print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
+              f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
+
+    # ── 5. 训练LightGBM ──
+    print("\n[5/7] 训练 LightGBM...")
     for target in TARGETS:
         print(f"\n  LightGBM — 目标: {target}")
         y_raw = df_train[target].astype(float)
@@ -346,8 +569,8 @@ def main():
         print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
               f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
 
-    # ── 4. 训练Random Forest ──
-    print("\n[4/5] 训练 Random Forest...")
+    # ── 6. 训练Random Forest ──
+    print("\n[6/7] 训练 Random Forest...")
     for target in TARGETS:
         print(f"\n  Random Forest — 目标: {target}")
         y_raw = df_train[target].astype(float)
@@ -371,15 +594,33 @@ def main():
         print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
               f"RMSE={info['valid_rmse']:.4f}, 耗时={info['training_seconds']}s")
 
-    # ── 5. 测试集预测与汇总 ──
-    print("\n[5/5] 测试集预测与汇总...")
+    # ── 7. 测试集预测与汇总 ──
+    print("\n[7/7] 测试集预测与汇总...")
 
-    # 构建测试集预测DataFrame
+    # 构建测试集预测DataFrame（合并文件）
     pred_df = df_test[['h3', 'datetime']].copy() if 'datetime' in df_test.columns else df_test[['h3']].copy()
+
+    # 存储每个模型的预测值，用于后续分别保存
+    all_model_preds: Dict[str, Dict[str, np.ndarray]] = {}  # {model_name: {'rent': arr, 'return': arr}}
 
     for target in TARGETS:
         y_test = df_test[target].astype(float)
         pred_df[f'{target}_true'] = y_test.values
+
+        # CatBoost（单阶段Poisson）
+        if 'CatBoost' in model_objects:
+            cb_pred = np.clip(model_objects['CatBoost'][target].predict(df_test[FEATURES]), 0, None)
+            pred_df[f'{target}_cb'] = cb_pred
+            all_model_preds.setdefault('CatBoost', {})[target] = cb_pred
+
+        # CatBoost Hurdle（P(demand>0) * E[demand | demand>0]）
+        if 'CB_Hurdle' in model_objects:
+            cb_hurdle = model_objects['CB_Hurdle'][target]
+            prob_test = cb_hurdle['classifier'].predict_proba(df_test[FEATURES])[:, 1]
+            val_test = np.clip(cb_hurdle['regressor'].predict(df_test[FEATURES]), 0, None)
+            hurdle_pred = np.clip(prob_test * val_test, 0, None)
+            pred_df[f'{target}_cb_hurdle'] = hurdle_pred
+            all_model_preds.setdefault('CB_Hurdle', {})[target] = hurdle_pred
 
         # LightGBM (需要 h3 为 category dtype)
         if 'LightGBM' in model_objects:
@@ -391,6 +632,7 @@ def main():
                 ), 0, None
             )
             pred_df[f'{target}_lgb'] = lgb_pred
+            all_model_preds.setdefault('LightGBM', {})[target] = lgb_pred
 
         # Random Forest (复用训练时的 h3→int 映射，未知值填 -1)
         if 'RandomForest' in model_objects:
@@ -401,20 +643,40 @@ def main():
                 model_objects['RandomForest'][target].predict(X_test_rf), 0, None
             )
             pred_df[f'{target}_rf'] = rf_pred
+            all_model_preds.setdefault('RandomForest', {})[target] = rf_pred
 
-        # CatBoost / CB_Hurdle测试集指标（从已有模型读取，若无则跳过）
+        # 测试集指标
         print(f"\n  测试集指标 — {target}:")
-        for model_name in ['LightGBM', 'RandomForest']:
-            col = f'{target}_{model_name[:3].lower()}'
+        model_col_map = {
+            'CatBoost': f'{target}_cb',
+            'CB Hurdle': f'{target}_cb_hurdle',
+            'LightGBM': f'{target}_lgb',
+            'Random Forest': f'{target}_rf',
+        }
+        for model_label, col in model_col_map.items():
             if col in pred_df.columns:
                 m = compute_metrics(y_test, pred_df[col])
-                print(f"    {model_name:15s}: Poisson={m['Poisson']:.4f}, "
+                print(f"    {model_label:18s}: Poisson={m['Poisson']:.4f}, "
                       f"RMSE={m['RMSE']:.4f}, MAE={m['MAE']:.4f}")
 
-    # 保存预测文件
+    # ── 保存合并预测文件 ──
     pred_path = os.path.join(args.output_dir, 'baseline_test_predictions.csv')
     pred_df.to_csv(pred_path, index=False)
-    print(f"\n  测试集预测已保存至: {pred_path}")
+    print(f"\n  合并测试集预测已保存至: {pred_path}")
+
+    # ── 分别保存四个模型的独立预测集（Grid_Utility 格式）──
+    print(f"\n  保存各模型独立预测集（Grid_Utility 格式）...")
+    for model_name in ['CatBoost', 'CB_Hurdle', 'LightGBM', 'RandomForest']:
+        if model_name in all_model_preds and 'rent' in all_model_preds[model_name]:
+            save_model_predictions(
+                model_name=model_name,
+                rent_pred=all_model_preds[model_name]['rent'],
+                return_pred=all_model_preds[model_name]['return'],
+                df_test_raw=df_test_raw,
+                output_dir=args.output_dir,
+            )
+        else:
+            print(f"  [{model_name}] 跳过：无可用预测结果。")
 
     # 构建对比文件
     comp_df = pd.DataFrame(comparison_rows)

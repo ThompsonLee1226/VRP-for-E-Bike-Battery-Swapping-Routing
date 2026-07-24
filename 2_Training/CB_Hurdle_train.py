@@ -350,59 +350,80 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
 
 def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
+    """Run inference on test set with zero-inflated Hurdle models and save in Grid_Utility format.
+
+    Output columns (matching 3_Optimization/Grid_Utility_Test.csv):
+        h3, latitude, longitude, datetime, month, day_of_week, is_weekend, hour,
+        rent_pred, return_pred,
+        low_power_bike_count, soon_low_power_bike_count, normal_power_bike_count,
+        rent, return
+    """
     print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set for zero-inflated prediction: {test_file}")
     test_df = pd.read_csv(test_file)
+    print(f"Test set loaded. Shape: {test_df.shape}")
 
+    # --- Preserve raw columns needed for Grid_Utility output BEFORE any dropping ---
+    OUTPUT_META_COLS = ['h3', 'latitude', 'longitude', 'datetime',
+                        'month', 'day_of_week', 'is_weekend', 'hour',
+                        'low_power_bike_count', 'soon_low_power_bike_count', 'normal_power_bike_count']
+    OUTPUT_GT_COLS = ['rent', 'return']
+
+    preserved_meta = {}
+    for col in OUTPUT_META_COLS:
+        preserved_meta[col] = test_df[col].values if col in test_df.columns else None
+
+    preserved_gt = {}
+    for col in OUTPUT_GT_COLS:
+        preserved_gt[col] = test_df[col].values if col in test_df.columns else None
+
+    # --- Standard preprocessing ---
     cols_to_drop = ['region_code', 'Unnamed: 21']
     test_df = test_df.drop(columns=[c for c in cols_to_drop if c in test_df.columns], errors='ignore')
 
-    # Preserve time-related columns for output before fill/feature engineering.
-    time_cols = ['datetime', 'month', 'day_of_week', 'is_weekend', 'hour']
-    raw_time_cols = [c for c in time_cols if c in test_df.columns]
-    raw_time_df = test_df[raw_time_cols].copy() if raw_time_cols else None
-    
-    if 'h3' in test_df.columns: test_df['h3'] = test_df['h3'].astype(str)
+    if 'h3' in test_df.columns:
+        test_df['h3'] = test_df['h3'].astype(str)
     test_df = fill_missing_values(test_df)
     test_df = add_feature_engineering(test_df)
     validate_required_columns(test_df, feature_cols, 'test set')
 
     X_test = test_df[feature_cols]
-    result_df = pd.DataFrame(index=test_df.index)
-    id_col_used = None
 
-    # === Rent Prediction ===
+    # === Rent Prediction (Hurdle: P(rent>0) * E(rent | rent>0)) ===
     rent_prob = models_dict['rent']['classifier'].predict_proba(X_test)[:, 1]
     rent_val = models_dict['rent']['regressor'].predict(X_test)
-    raw_rent_pred = np.clip(rent_prob * rent_val, 0, None)
-    result_df['rent_pred'] = raw_rent_pred
+    rent_pred = np.clip(rent_prob * rent_val, 0, None)
 
-    # === Return Prediction ===
+    # === Return Prediction (Hurdle: P(return>0) * E(return | return>0)) ===
     return_prob = models_dict['return']['classifier'].predict_proba(X_test)[:, 1]
     return_val = models_dict['return']['regressor'].predict(X_test)
-    
-    raw_return_pred = np.clip(return_prob * return_val, 0, None)
-    result_df['return_pred'] = raw_return_pred
-    # ----------------------------
-    # Preserve identifiers and time columns in output.
-    for id_col in ['id', 'station_id', 'h3']:
-        if id_col in test_df.columns:
-            result_df.insert(0, id_col, test_df[id_col].values)
-            id_col_used = id_col
-            break
-    if raw_time_df is not None:
-        for col in raw_time_cols:
-            result_df[col] = raw_time_df[col].values
+    return_pred = np.clip(return_prob * return_val, 0, None)
 
-    ordered_cols = []
-    if id_col_used:
-        ordered_cols.append(id_col_used)
-    ordered_cols.extend(raw_time_cols)
-    ordered_cols.extend(['rent_pred', 'return_pred'])
-    existing_cols = [c for c in ordered_cols if c in result_df.columns]
-    result_df = result_df[existing_cols]
+    # --- Assemble output in Grid_Utility format ---
+    result_df = pd.DataFrame()
+
+    # 1. Identifier + spatial columns
+    for col in ['h3', 'latitude', 'longitude']:
+        result_df[col] = preserved_meta[col] if preserved_meta.get(col) is not None else 0
+
+    # 2. Temporal columns
+    for col in ['datetime', 'month', 'day_of_week', 'is_weekend', 'hour']:
+        result_df[col] = preserved_meta[col] if preserved_meta.get(col) is not None else 0
+
+    # 3. Predictions
+    result_df['rent_pred'] = rent_pred
+    result_df['return_pred'] = return_pred
+
+    # 4. Bike status columns
+    for col in ['low_power_bike_count', 'soon_low_power_bike_count', 'normal_power_bike_count']:
+        result_df[col] = preserved_meta[col] if preserved_meta.get(col) is not None else 0
+
+    # 5. Ground truth (rent, return) — 0 if test set doesn't have them
+    for col in ['rent', 'return']:
+        result_df[col] = preserved_gt[col] if preserved_gt.get(col) is not None else 0
 
     result_df.to_csv(output_file, index=False)
     print(f"Test prediction complete. Saved to: {output_file}")
+    print(f"Output columns: {list(result_df.columns)}")
 
 # ==========================================
 # 3. Main pipeline

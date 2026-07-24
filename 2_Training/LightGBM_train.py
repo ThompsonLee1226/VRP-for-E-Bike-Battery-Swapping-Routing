@@ -285,19 +285,33 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
 
 
 def predict_on_test_data(models, feature_cols, test_file, output_file):
-    
-    """
-    Predict on test set with trained rent/return models and export results.
-    :param models: {'rent': rent_model, 'return': return_model}
-    :param feature_cols: feature columns used in training
-    :param test_file: test CSV path
-    :param output_file: output prediction file path
+    """Predict on test set with trained rent/return models and export in Grid_Utility format.
+
+    Output columns (matching 3_Optimization/Grid_Utility_Test.csv):
+        h3, latitude, longitude, datetime, month, day_of_week, is_weekend, hour,
+        rent_pred, return_pred,
+        low_power_bike_count, soon_low_power_bike_count, normal_power_bike_count,
+        rent, return
     """
     print(f"\n[{time.strftime('%H:%M:%S')}] Loading test set: {test_file}")
     test_df = pd.read_csv(test_file)
     print(f"Test set loaded. Shape: {test_df.shape}")
 
-    # Apply the same preprocessing as training.
+    # --- Preserve raw columns needed for Grid_Utility output BEFORE any dropping ---
+    OUTPUT_META_COLS = ['h3', 'latitude', 'longitude', 'datetime',
+                        'month', 'day_of_week', 'is_weekend', 'hour',
+                        'low_power_bike_count', 'soon_low_power_bike_count', 'normal_power_bike_count']
+    OUTPUT_GT_COLS = ['rent', 'return']
+
+    preserved_meta = {}
+    for col in OUTPUT_META_COLS:
+        preserved_meta[col] = test_df[col].values if col in test_df.columns else None
+
+    preserved_gt = {}
+    for col in OUTPUT_GT_COLS:
+        preserved_gt[col] = test_df[col].values if col in test_df.columns else None
+
+    # --- Standard preprocessing (matches training) ---
     cols_to_drop = ['region_code', 'Unnamed: 21', 'datetime']
     test_df = test_df.drop(columns=[c for c in cols_to_drop if c in test_df.columns], errors='ignore')
     if 'h3' in test_df.columns:
@@ -307,19 +321,36 @@ def predict_on_test_data(models, feature_cols, test_file, output_file):
     validate_required_columns(test_df, feature_cols, 'test set')
     X_test = test_df[feature_cols]
 
-    # Predict both targets.
-    result_df = pd.DataFrame(index=test_df.index)
-    result_df['rent_pred'] = models['rent'].predict(X_test, num_iteration=models['rent'].best_iteration)
-    result_df['return_pred'] = models['return'].predict(X_test, num_iteration=models['return'].best_iteration)
+    # --- Predict both targets ---
+    rent_pred = models['rent'].predict(X_test, num_iteration=models['rent'].best_iteration)
+    return_pred = models['return'].predict(X_test, num_iteration=models['return'].best_iteration)
 
-    # Keep one traceable ID column for downstream alignment.
-    for id_col in ['id', 'station_id', 'h3']:
-        if id_col in test_df.columns:
-            result_df.insert(0, id_col, test_df[id_col].values)
-            break
+    # --- Assemble output in Grid_Utility format ---
+    result_df = pd.DataFrame()
+
+    # 1. Identifier + spatial columns
+    for col in ['h3', 'latitude', 'longitude']:
+        result_df[col] = preserved_meta[col] if preserved_meta.get(col) is not None else 0
+
+    # 2. Temporal columns
+    for col in ['datetime', 'month', 'day_of_week', 'is_weekend', 'hour']:
+        result_df[col] = preserved_meta[col] if preserved_meta.get(col) is not None else 0
+
+    # 3. Predictions
+    result_df['rent_pred'] = rent_pred
+    result_df['return_pred'] = return_pred
+
+    # 4. Bike status columns
+    for col in ['low_power_bike_count', 'soon_low_power_bike_count', 'normal_power_bike_count']:
+        result_df[col] = preserved_meta[col] if preserved_meta.get(col) is not None else 0
+
+    # 5. Ground truth (rent, return) — 0 if test set doesn't have them
+    for col in ['rent', 'return']:
+        result_df[col] = preserved_gt[col] if preserved_gt.get(col) is not None else 0
 
     result_df.to_csv(output_file, index=False)
     print(f"Test prediction complete. Saved to: {output_file}")
+    print(f"Output columns: {list(result_df.columns)}")
 
 # ==========================================
 # 3. Main pipeline
