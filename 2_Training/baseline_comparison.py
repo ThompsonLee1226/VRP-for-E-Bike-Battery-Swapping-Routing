@@ -40,7 +40,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_poisson_deviance, mean_squared_error, mean_absolute_error
+from sklearn.metrics import mean_poisson_deviance, mean_squared_error, mean_absolute_error, log_loss
 
 warnings.filterwarnings('ignore')
 
@@ -57,6 +57,8 @@ FEATURES = [
     'normal_power_bike_count', 'soon_low_power_bike_count', 'low_power_bike_count',
     'latitude', 'longitude',
     'temp_x_rain', 'available_power_bike_gap', 'is_rush_hour',
+    'lag_rent_is_zero', 'lag_return_is_zero',
+    'rent_mean_7d_low', 'return_mean_7d_low',
 ]
 
 TARGETS = ['rent', 'return']
@@ -71,6 +73,7 @@ GRID_UTILITY_GT_COLS = ['rent', 'return']
 
 
 def add_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
+    """创建所有手工特征，与 CB_Hurdle_train.py 完全一致。"""
     df = df.copy()
     if 'hour' in df.columns:
         df['is_rush_hour'] = df['hour'].isin([7, 8, 9, 17, 18, 19]).astype(int)
@@ -86,6 +89,30 @@ def add_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
         )
     else:
         df['available_power_bike_gap'] = 0.0
+
+    # ── 零需求指示特征：帮助分类器识别零需求场景 ──
+    # 上一时刻的需求是否为零（强零需求信号）
+    if 'lag_nb_rent' in df.columns:
+        df['lag_rent_is_zero'] = (df['lag_nb_rent'] == 0).astype(int)
+    else:
+        df['lag_rent_is_zero'] = 0
+
+    if 'lag_nb_return' in df.columns:
+        df['lag_return_is_zero'] = (df['lag_nb_return'] == 0).astype(int)
+    else:
+        df['lag_return_is_zero'] = 0
+
+    # 7日滚动均值是否极低（<0.1 视为"几乎无需求"区域）
+    if 'rent_mean_7d' in df.columns:
+        df['rent_mean_7d_low'] = (df['rent_mean_7d'] < 0.1).astype(int)
+    else:
+        df['rent_mean_7d_low'] = 0
+
+    if 'return_mean_7d' in df.columns:
+        df['return_mean_7d_low'] = (df['return_mean_7d'] < 0.1).astype(int)
+    else:
+        df['return_mean_7d_low'] = 0
+
     return df
 
 
@@ -475,11 +502,76 @@ def train_cb_hurdle(
 
     elapsed = time.time() - t_start
 
-    # Joint prediction: P(demand>0) * E[demand | demand>0]
+    # --- Stage 3: Soft-product prediction (no threshold) ---
     prob_valid = classifier.predict_proba(X_valid)[:, 1]
     val_valid = np.clip(regressor.predict(X_valid), 0, None)
-    final_pred = np.clip(prob_valid * val_valid, 0, None)
-    metrics = compute_metrics(y_valid, final_pred)
+    soft_pred = np.clip(prob_valid * val_valid, 0, None)
+    soft_metrics = compute_metrics(y_valid, soft_pred)
+
+    # --- Stage 4: Optimize zero-decision threshold τ ---
+    # 在验证集上搜索最优阈值 τ。
+    # 当 P(demand>0 | X) < τ 时，强制预测为 0；
+    # 否则预测 P(demand>0) × E(demand | demand>0)。
+    #
+    # 关键设计：使用双准则搜索，因为 Poisson deviance 对假阴性（误判为零）的
+    # 惩罚极端不对称（一个假零 ≈ 70+ deviance，一个真零仅节省 ≈ 0.2 deviance），
+    # 导致纯 Poisson 准则下 τ* 几乎总是 0。
+    # 因此同时报告 Poisson-最优 τ 和 F1-最优 τ。
+    eps = 1e-6
+    n_true_zero = (y_valid <= eps).sum()
+    true_zero_ratio = n_true_zero / len(y_valid)
+
+    # Poisson-based τ search
+    best_tau_poisson = 0.0
+    best_poisson = soft_metrics['Poisson']
+    best_zero_recall_poi = 0.0
+    best_zero_precision_poi = np.nan
+    best_pred_zero_ratio_poi = 0.0
+
+    # F1-based τ search
+    best_tau_f1 = 0.0
+    best_f1 = 0.0
+    best_zero_recall_f1 = 0.0
+    best_zero_precision_f1 = np.nan
+    best_pred_zero_ratio_f1 = 0.0
+    best_poisson_at_f1 = soft_metrics['Poisson']
+
+    for tau in np.arange(0.01, 0.91, 0.02):
+        pred_zero_mask = prob_valid < tau
+        thresh_pred = np.where(pred_zero_mask, 0.0, soft_pred)
+        # mean_poisson_deviance 要求 y_pred > 0，裁剪到 eps 保留相对排序
+        thresh_pred_safe = np.clip(thresh_pred, eps, None)
+        thresh_poisson = mean_poisson_deviance(y_valid, thresh_pred_safe)
+
+        n_pred_zero = pred_zero_mask.sum()
+        n_correct_zero = ((y_valid <= eps) & pred_zero_mask).sum()
+        zero_recall = n_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
+        zero_precision = n_correct_zero / n_pred_zero if n_pred_zero > 0 else np.nan
+        zero_f1 = (2 * zero_recall * zero_precision / (zero_recall + zero_precision)
+                   if (zero_recall + zero_precision) > 0 else 0.0)
+
+        # 记录 Poisson-最优 τ
+        if thresh_poisson < best_poisson:
+            best_poisson = thresh_poisson
+            best_tau_poisson = tau
+            best_zero_recall_poi = zero_recall
+            best_zero_precision_poi = zero_precision
+            best_pred_zero_ratio_poi = n_pred_zero / len(y_valid)
+
+        # 记录 F1-最优 τ
+        if zero_f1 > best_f1:
+            best_f1 = zero_f1
+            best_tau_f1 = tau
+            best_zero_recall_f1 = zero_recall
+            best_zero_precision_f1 = zero_precision
+            best_pred_zero_ratio_f1 = n_pred_zero / len(y_valid)
+            best_poisson_at_f1 = thresh_poisson
+
+    # 选择默认阈值：优先使用 Poisson-最优 τ；若为 0 则回退到 F1-最优 τ
+    # （因为 τ=0 意味着"不预测任何零值"，Hurdle 模型的核心价值未完全发挥）
+    use_threshold = best_tau_poisson if best_tau_poisson > 0 else best_tau_f1
+    final_pred = np.where(prob_valid < use_threshold, 0.0, soft_pred)
+    final_metrics = compute_metrics(y_valid, final_pred)
 
     info = {
         'learning_rate': 0.02,
@@ -488,9 +580,33 @@ def train_cb_hurdle(
         'od_wait': 80,
         'best_iteration': regressor.get_best_iteration(),
         'training_seconds': round(elapsed, 1),
-        **{f'valid_{k.lower()}': v for k, v in metrics.items()},
+        # 原 soft-product 指标（用于对比 τ 优化带来的增量）
+        **{f'valid_{k.lower()}_soft': v for k, v in soft_metrics.items()},
+        # 最终指标（应用阈值后）
+        **{f'valid_{k.lower()}': v for k, v in final_metrics.items()},
+        # 阈值优化结果
+        'hurdle_threshold_poisson': best_tau_poisson,
+        'hurdle_threshold_f1': best_tau_f1,
+        'hurdle_threshold_used': use_threshold,
+        'valid_true_zero_ratio': round(true_zero_ratio, 4),
+        'valid_pred_zero_ratio_poisson': round(best_pred_zero_ratio_poi, 4),
+        'valid_pred_zero_ratio_f1': round(best_pred_zero_ratio_f1, 4),
+        'valid_zero_f1_poisson': round(
+            2 * best_zero_recall_poi * best_zero_precision_poi /
+            (best_zero_recall_poi + best_zero_precision_poi) if
+            (best_zero_recall_poi + best_zero_precision_poi) > 0 else 0.0, 4
+        ),
+        'valid_zero_f1_f1': round(best_f1, 4),
+        'valid_classifier_logloss': round(log_loss(y_valid_bin, prob_valid), 4),
     }
-    return {'classifier': classifier, 'regressor': regressor}, info
+
+    return {
+        'classifier': classifier,
+        'regressor': regressor,
+        'threshold': use_threshold,
+        'threshold_poisson': best_tau_poisson,
+        'threshold_f1': best_tau_f1,
+    }, info
 
 
 # ── 主流程 ────────────────────────────────────────────────────────────────
@@ -499,8 +615,14 @@ def main():
     parser = argparse.ArgumentParser(description='四种架构基准对比：全部模型从零训练，统一数据划分')
     parser.add_argument('--train_csv', required=True, help='训练集CSV')
     parser.add_argument('--test_csv', required=True, help='测试集CSV')
-    parser.add_argument('--output_dir', default='Baseline_Comparison_Results', help='输出目录')
+    parser.add_argument('--output_dir', default=None,
+                        help='输出目录（默认自动生成 Training_Results/{YYYYMMDD_HHMMSS}）')
     args = parser.parse_args()
+
+    if args.output_dir is None:
+        run_timestamp = time.strftime('%Y%m%d_%H%M%S')
+        args.output_dir = os.path.join(SCRIPT_DIR, 'Training_Results', run_timestamp)
+        print(f"自动生成输出目录: {args.output_dir}")
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -565,7 +687,14 @@ def main():
         model_objects.setdefault('CB_Hurdle', {})[target] = model_dict
 
         print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
-              f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
+              f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}, "
+              f"τ_used={info['hurdle_threshold_used']:.2f}")
+        print(f"    阈值优化: τ_Poisson={info['hurdle_threshold_poisson']:.2f}, "
+              f"τ_F1={info['hurdle_threshold_f1']:.2f}, "
+              f"F1_poi={info['valid_zero_f1_poisson']:.4f}, F1_f1={info['valid_zero_f1_f1']:.4f}")
+        print(f"    Classifier Logloss={info['valid_classifier_logloss']:.4f}, "
+              f"真零比={info['valid_true_zero_ratio']:.2%}, "
+              f"预测零比(F1)={info['valid_pred_zero_ratio_f1']:.2%}")
 
         comparison_rows.append({
             'model': 'CB Hurdle',
@@ -650,12 +779,15 @@ def main():
             pred_df[f'{target}_cb'] = cb_pred
             all_model_preds.setdefault('CatBoost', {})[target] = cb_pred
 
-        # CatBoost Hurdle（P(demand>0) * E[demand | demand>0]）
+        # CatBoost Hurdle（P(demand>0) * E[demand | demand>0]，应用 τ 阈值）
         if 'CB_Hurdle' in model_objects:
             cb_hurdle = model_objects['CB_Hurdle'][target]
             prob_test = cb_hurdle['classifier'].predict_proba(df_test[FEATURES])[:, 1]
             val_test = np.clip(cb_hurdle['regressor'].predict(df_test[FEATURES]), 0, None)
-            hurdle_pred = np.clip(prob_test * val_test, 0, None)
+            soft_pred = np.clip(prob_test * val_test, 0, None)
+            # 应用 Stage 4 优化的阈值：P(demand>0) < τ → 强判为零
+            tau = cb_hurdle.get('threshold', 0.0)
+            hurdle_pred = np.where(prob_test < tau, 0.0, soft_pred)
             pred_df[f'{target}_cb_hurdle'] = hurdle_pred
             all_model_preds.setdefault('CB_Hurdle', {})[target] = hurdle_pred
 
@@ -754,6 +886,11 @@ def main():
                      'n_estimators', 'max_depth', 'min_samples_leaf',
                      'best_iteration',
                      'valid_poisson', 'valid_rmse', 'valid_mae',
+                     'valid_poisson_soft', 'valid_rmse_soft', 'valid_mae_soft',
+                     'hurdle_threshold_poisson', 'hurdle_threshold_f1', 'hurdle_threshold_used',
+                     'valid_true_zero_ratio', 'valid_pred_zero_ratio_poisson',
+                     'valid_pred_zero_ratio_f1', 'valid_zero_f1_poisson', 'valid_zero_f1_f1',
+                     'valid_classifier_logloss',
                      'training_seconds', 'notes']
     existing = [c for c in priority_cols if c in comp_df.columns]
     remaining = [c for c in comp_df.columns if c not in existing]

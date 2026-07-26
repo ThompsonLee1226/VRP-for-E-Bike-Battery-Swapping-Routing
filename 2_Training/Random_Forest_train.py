@@ -10,13 +10,19 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from training_summary_manager import append_row as append_summary_row
+
 # Centralized input/output configuration
 TRAIN_FILE = 'battery_swapping_routing_data_train_time70.csv'
 TEST_FILE = 'battery_swapping_routing_data_valid_time30.csv'
 TRAINING_SCALE = [ 
                   None
                   ]
-TRAINING_RESULTS_DIR = 'Training_Results_RF'
+TRAINING_RESULTS_DIR = 'Training_Results'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_RF_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_RF_{target}_{scale}_{ts}.png'
 
@@ -278,8 +284,15 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         run_timestamp=run_timestamp,
         run_output_dir=run_output_dir
     )
-    
-    return final_model
+
+    summary = {
+        'target_name': target_name,
+        'best_n_estimators': best_n_estimators,
+        'final_metric': final_rmse,
+        'train_size': len(X_train),
+        'valid_size': len(X_valid),
+    }
+    return final_model, summary
 
 
 def preprocess_test_data(test_df, h3_mapping):
@@ -381,8 +394,8 @@ if __name__ == "__main__":
         df, feature_cols, h3_mapping = load_and_preprocess(TRAIN_FILE, scale=scale)
         scale_tag = str(scale) if scale is not None else 'all'
         
-        rent_model = train_model(df, feature_cols, 'rent', scale_tag, run_timestamp, run_output_dir)
-        return_model = train_model(df, feature_cols, 'return', scale_tag, run_timestamp, run_output_dir)
+        rent_model, rent_summary = train_model(df, feature_cols, 'rent', scale_tag, run_timestamp, run_output_dir)
+        return_model, return_summary = train_model(df, feature_cols, 'return', scale_tag, run_timestamp, run_output_dir)
 
         output_file = os.path.join(
             run_output_dir,
@@ -395,6 +408,23 @@ if __name__ == "__main__":
             output_file,
             h3_mapping
         )
+
+        # Write summary CSV into timestamp folder
+        summary_csv = os.path.join(run_output_dir, 'training_summary.csv')
+        summary_row = {
+            'run_timestamp': run_timestamp,
+            'model_type': 'RF',
+            'scale_tag': scale_tag,
+            'split_mode': 'random',
+            'train_size': rent_summary['train_size'],
+            'valid_size': rent_summary['valid_size'],
+            'rent_best_n_estimators': rent_summary['best_n_estimators'],
+            'return_best_n_estimators': return_summary['best_n_estimators'],
+            'rent_final_metric': rent_summary['final_metric'],
+            'return_final_metric': return_summary['final_metric'],
+        }
+        append_summary_row(summary_csv, summary_row)
+        print(f"Run summary appended to: {summary_csv}")
         
         print("\n" + "="*50)
         print(f"Random Forest dual-target training and test prediction completed for scale {scale_tag}.")

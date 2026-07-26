@@ -10,13 +10,19 @@ import sys
 import warnings
 warnings.filterwarnings('ignore')
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from training_summary_manager import append_row as append_summary_row
+
 # Centralized input/output configuration
 TRAIN_FILE = 'battery_swapping_routing_data.csv'
 TEST_FILE = 'battery_swapping_routing_test_dataset.csv'
 TRAINING_SCALE = [
                   None
                   ]
-TRAINING_RESULTS_DIR = 'Training_Results_LightGBM'
+TRAINING_RESULTS_DIR = 'Training_Results'
 PREDICTION_OUTPUT_TEMPLATE = 'prediction_scale_{scale}_{ts}.csv'
 PROGRESS_PLOT_TEMPLATE = 'training_progress_{target}_{scale}_{ts}.png'
 
@@ -280,8 +286,15 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         run_timestamp=run_timestamp,
         run_output_dir=run_output_dir
     )
-    
-    return model
+
+    summary = {
+        'target_name': target_name,
+        'best_iteration': model.best_iteration,
+        'final_metric': final_rmse,
+        'train_size': len(X_train),
+        'valid_size': len(X_valid),
+    }
+    return model, summary
 
 
 def predict_on_test_data(models, feature_cols, test_file, output_file):
@@ -375,7 +388,7 @@ if __name__ == "__main__":
         scale_tag = str(scale) if scale is not None else 'all'
         
         # 2. Train outflow model (rent).
-        rent_model = train_model(
+        rent_model, rent_summary = train_model(
             df,
             feature_cols,
             target_name='rent',
@@ -383,9 +396,9 @@ if __name__ == "__main__":
             run_timestamp=run_timestamp,
             run_output_dir=run_output_dir
         )
-        
+
         # 3. Train inflow model (return).
-        return_model = train_model(
+        return_model, return_summary = train_model(
             df,
             feature_cols,
             target_name='return',
@@ -408,6 +421,23 @@ if __name__ == "__main__":
             test_file=TEST_FILE,
             output_file=output_file
         )
+
+        # 5. Write summary CSV into timestamp folder
+        summary_csv = os.path.join(run_output_dir, 'training_summary.csv')
+        summary_row = {
+            'run_timestamp': run_timestamp,
+            'model_type': 'LGB',
+            'scale_tag': scale_tag,
+            'split_mode': 'random',
+            'train_size': rent_summary['train_size'],
+            'valid_size': rent_summary['valid_size'],
+            'rent_best_iteration': rent_summary['best_iteration'],
+            'return_best_iteration': return_summary['best_iteration'],
+            'rent_final_metric': rent_summary['final_metric'],
+            'return_final_metric': return_summary['final_metric'],
+        }
+        append_summary_row(summary_csv, summary_row)
+        print(f"Run summary appended to: {summary_csv}")
         
         print("\n" + "="*50)
         print(f"Dual-target training and test prediction completed for scale {scale if scale else 'ALL'}.")

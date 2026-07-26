@@ -1,3 +1,21 @@
+"""
+运行命令：
+
+# 默认时间 (2025/10/24 12:00)
+  python 3_Optimization/main_STGraph.py
+  # 指定具体小时
+  python 3_Optimization/main_STGraph.py --datetime "2025/10/28 14:00"
+
+  # 随机选取
+  python 3_Optimization/main_STGraph.py --random
+
+  # 随机选取 + 固定种子 (可复现)
+  python 3_Optimization/main_STGraph.py --random --seed 42
+
+  # 列出所有可用小时
+  python 3_Optimization/main_STGraph.py --list-hours
+"""
+
 from __future__ import annotations
 
 import os

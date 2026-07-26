@@ -33,8 +33,8 @@ def cfg_value(name, default):
 TRAIN_FILE = cfg_value('TRAIN_FILE', 'battery_swapping_routing_data_train_time70.csv')
 TEST_FILE = cfg_value('TEST_FILE', 'battery_swapping_routing_test_dataset.csv')
 TRAINING_SCALE = cfg_value('TRAINING_SCALE', [20000])
-TRAINING_RESULTS_DIR = cfg_value('TRAINING_RESULTS_DIR', 'Training_Results_CatBoost')
-TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', os.path.join(TRAINING_RESULTS_DIR, 'training_summary.csv'))
+TRAINING_RESULTS_DIR = cfg_value('TRAINING_RESULTS_DIR', 'Training_Results')
+TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', None)  # None → 运行时写入 run_output_dir
 PREDICTION_OUTPUT_TEMPLATE = cfg_value('PREDICTION_OUTPUT_TEMPLATE', 'prediction_CB_scale_{scale}_{ts}.csv')
 PROGRESS_PLOT_TEMPLATE = cfg_value('PROGRESS_PLOT_TEMPLATE', 'training_progress_CB_{target}_{scale}_{ts}.png')
 USE_LOG_TARGET = cfg_value('USE_LOG_TARGET', False)          # Poisson expects raw targets
@@ -501,12 +501,14 @@ if __name__ == "__main__":
                 scale=scale if scale is not None else 'all', ts=run_timestamp
             )
         )
-        
+
         predict_on_test_data(
             models={'rent': rent_model, 'return': return_model},
             feature_cols=feature_cols, test_file=TEST_FILE, output_file=output_file
         )
 
+        # 汇总CSV写入时间戳文件夹内
+        summary_csv = TRAINING_SUMMARY_CSV if TRAINING_SUMMARY_CSV else os.path.join(run_output_dir, 'training_summary.csv')
         run_summary_row = build_run_summary_row(
             run_timestamp=run_timestamp,
             scale_tag=scale_tag,
@@ -528,8 +530,8 @@ if __name__ == "__main__":
                 'cb_iterations': CB_ITERATIONS,
             },
         )
-        append_summary_row(TRAINING_SUMMARY_CSV, run_summary_row)
-        print(f"Run summary appended to: {TRAINING_SUMMARY_CSV}")
+        append_summary_row(summary_csv, run_summary_row)
+        print(f"Run summary appended to: {summary_csv}")
         
         print("\n" + "="*50)
         print(f"CatBoost dual-target training finished for scale {scale if scale else 'ALL'}.")

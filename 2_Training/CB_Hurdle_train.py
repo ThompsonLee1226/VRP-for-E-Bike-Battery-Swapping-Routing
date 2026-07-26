@@ -32,8 +32,8 @@ def cfg_value(name, default):
 TRAIN_FILE = cfg_value('TRAIN_FILE', 'battery_swapping_routing_data_train_time70.csv')
 TEST_FILE = cfg_value('TEST_FILE', 'battery_swapping_routing_data_valid_time30.csv')
 TRAINING_SCALE = cfg_value('TRAINING_SCALE', [100000])
-TRAINING_RESULTS_DIR = cfg_value('HURDLE_TRAINING_RESULTS_DIR', cfg_value('TRAINING_RESULTS_DIR', 'Training_Results_CatBoost_Hurdle'))
-TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', 'training_summary_catboost.csv')
+TRAINING_RESULTS_DIR = cfg_value('HURDLE_TRAINING_RESULTS_DIR', cfg_value('TRAINING_RESULTS_DIR', 'Training_Results'))
+TRAINING_SUMMARY_CSV = cfg_value('TRAINING_SUMMARY_CSV', None)  # None → 运行时写入 run_output_dir
 PREDICTION_OUTPUT_TEMPLATE = cfg_value('HURDLE_PREDICTION_OUTPUT_TEMPLATE', cfg_value('PREDICTION_OUTPUT_TEMPLATE', 'prediction_CB_Hurdle_scale_{scale}_{ts}.csv'))
 PROGRESS_PLOT_TEMPLATE = cfg_value('HURDLE_PROGRESS_PLOT_TEMPLATE', cfg_value('PROGRESS_PLOT_TEMPLATE', 'training_progress_CB_hurdle_{target}_{context}_{scale}_{ts}.png'))
 USE_LOG_TARGET = cfg_value('USE_LOG_TARGET', False)
@@ -354,20 +354,35 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     classifier_logloss = log_loss(y_valid_bin, prob_valid)
     regressor_poisson_pos = mean_poisson_deviance(y_valid_pos, regressor.predict(X_valid_pos))
 
-    # --- Stage 4: Optimize zero-decision threshold τ ---
-    # 核心改进：在验证集上搜索最优阈值 τ。
+    # --- Stage 4: Optimize zero-decision threshold τ (dual-criterion) ---
+    # 核心改进：在验证集上搜索最优阈值 τ，使用双准则搜索。
     # 当 P(demand>0 | X) < τ 时，强制预测为 0；
     # 否则预测 P(demand>0) × E(demand | demand>0)。
-    # 优化目标：最小化 Poisson deviance。
-    print(f"\n--- Stage 4: Optimizing zero-decision threshold τ ---")
-    best_threshold = 0.0  # τ=0 等价于不做截断（回退到 soft product）
-    best_final_poisson = soft_poisson
-    best_zero_recall = 0.0
-    best_zero_precision = 0.0
-    best_pred_zero_ratio = 0.0
+    #
+    # 关键设计：纯 Poisson deviance 对假阴性（误判为零）的惩罚极端不对称
+    # （一个假零 ≈ 70+ deviance，一个真零仅节省 ≈ 0.2 deviance），
+    # 导致纯 Poisson 准则下 τ* 几乎总是 0。
+    # 因此同时报告 Poisson-最优 τ 和 F1-最优 τ，默认使用 Poisson-最优 τ；
+    # 若 τ_Poisson = 0 则回退到 F1-最优 τ。
+    print(f"\n--- Stage 4: Optimizing zero-decision threshold τ (dual-criterion) ---")
     true_zero_ratio = (y_valid_raw <= eps).mean()
+    n_true_zero = (y_valid_raw <= eps).sum()
 
-    # 在 [0.01, 0.90] 范围内以步长 0.02 搜索最优阈值
+    # Poisson-based τ search
+    best_tau_poisson = 0.0
+    best_poisson = soft_poisson
+    best_zero_recall_poi = 0.0
+    best_zero_precision_poi = 0.0
+    best_pred_zero_ratio_poi = 0.0
+
+    # F1-based τ search
+    best_tau_f1 = 0.0
+    best_f1 = 0.0
+    best_zero_recall_f1 = 0.0
+    best_zero_precision_f1 = 0.0
+    best_pred_zero_ratio_f1 = 0.0
+    best_poisson_at_f1 = soft_poisson
+
     for tau in np.arange(0.01, 0.91, 0.02):
         pred_zero_mask = prob_valid < tau
         thresh_pred = np.where(pred_zero_mask, 0.0, soft_pred)
@@ -376,36 +391,74 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         thresh_pred_safe = np.clip(thresh_pred, eps, None)
         thresh_poisson = mean_poisson_deviance(y_valid_raw, thresh_pred_safe)
 
-        if thresh_poisson < best_final_poisson:
-            best_final_poisson = thresh_poisson
-            best_threshold = tau
-            n_true_zero = (y_valid_raw <= eps).sum()
-            n_pred_zero = pred_zero_mask.sum()
-            n_correct_zero = ((y_valid_raw <= eps) & pred_zero_mask).sum()
-            best_zero_recall = n_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
-            best_zero_precision = n_correct_zero / n_pred_zero if n_pred_zero > 0 else 0.0
-            best_pred_zero_ratio = n_pred_zero / len(y_valid_raw)
+        n_pred_zero = pred_zero_mask.sum()
+        n_correct_zero = ((y_valid_raw <= eps) & pred_zero_mask).sum()
+        zero_recall = n_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
+        zero_precision = n_correct_zero / n_pred_zero if n_pred_zero > 0 else 0.0
+        zero_f1 = (2 * zero_recall * zero_precision / (zero_recall + zero_precision)
+                   if (zero_recall + zero_precision) > 0 else 0.0)
 
-    # 应用最优阈值得到最终验证集预测
-    final_pred = np.where(prob_valid < best_threshold, 0.0, soft_pred)
-    final_poisson = best_final_poisson
+        # 记录 Poisson-最优 τ
+        if thresh_poisson < best_poisson:
+            best_poisson = thresh_poisson
+            best_tau_poisson = tau
+            best_zero_recall_poi = zero_recall
+            best_zero_precision_poi = zero_precision
+            best_pred_zero_ratio_poi = n_pred_zero / len(y_valid_raw)
 
-    zero_f1 = (2 * best_zero_recall * best_zero_precision / (best_zero_recall + best_zero_precision)
-               if (best_zero_recall + best_zero_precision) > 0 else 0.0)
+        # 记录 F1-最优 τ
+        if zero_f1 > best_f1:
+            best_f1 = zero_f1
+            best_tau_f1 = tau
+            best_zero_recall_f1 = zero_recall
+            best_zero_precision_f1 = zero_precision
+            best_pred_zero_ratio_f1 = n_pred_zero / len(y_valid_raw)
+            best_poisson_at_f1 = thresh_poisson
+
+    # 选择默认阈值：优先使用 Poisson-最优 τ；若为 0 则回退到 F1-最优 τ
+    # （因为 τ=0 意味着"不预测任何零值"，Hurdle 模型的核心价值未完全发挥）
+    use_threshold = best_tau_poisson if best_tau_poisson > 0 else best_tau_f1
+
+    # 应用最终阈值得到验证集预测
+    final_pred = np.where(prob_valid < use_threshold, 0.0, soft_pred)
+    final_pred_safe = np.clip(final_pred, eps, None)
+    final_poisson = mean_poisson_deviance(y_valid_raw, final_pred_safe)
+
+    # 计算最终阈值下的零值指标
+    final_pred_zero_mask = prob_valid < use_threshold
+    n_final_pred_zero = final_pred_zero_mask.sum()
+    n_final_correct_zero = ((y_valid_raw <= eps) & final_pred_zero_mask).sum()
+    final_zero_recall = n_final_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
+    final_zero_precision = n_final_correct_zero / n_final_pred_zero if n_final_pred_zero > 0 else 0.0
+    final_zero_f1 = (2 * final_zero_recall * final_zero_precision /
+                     (final_zero_recall + final_zero_precision)
+                     if (final_zero_recall + final_zero_precision) > 0 else 0.0)
+
+    # 计算 Poisson-τ 下的 Zero F1（用于报告）
+    zero_f1_poisson = (2 * best_zero_recall_poi * best_zero_precision_poi /
+                       (best_zero_recall_poi + best_zero_precision_poi)
+                       if (best_zero_recall_poi + best_zero_precision_poi) > 0 else 0.0)
 
     print(f"🎉 [{target_name}] Hurdle model training completed!")
     print(f"📌 Classifier Logloss (valid):        {classifier_logloss:.4f}")
     print(f"📌 Regressor Poisson on positives:    {regressor_poisson_pos:.4f}")
     print(f"📌 Soft-product Poisson (τ=0):        {soft_poisson:.4f}")
-    print(f"─── Zero-Threshold Optimization ───")
-    print(f"🎯 Optimal threshold τ*:              {best_threshold:.2f}")
+    print(f"─── Zero-Threshold Optimization (Dual-Criterion) ───")
+    print(f"🎯 Poisson-optimal τ*:                {best_tau_poisson:.2f}  "
+          f"(Poisson={best_poisson:.4f}, Δ={soft_poisson - best_poisson:+.4f})")
+    print(f"🎯 F1-optimal τ*:                     {best_tau_f1:.2f}  "
+          f"(F1={best_f1:.4f}, Poisson@{best_tau_f1:.2f}={best_poisson_at_f1:.4f})")
+    print(f"🎯 Selected threshold (used):         {use_threshold:.2f}")
     print(f"🎯 Final Poisson (hard-threshold):    {final_poisson:.4f}  "
           f"(Δ={soft_poisson - final_poisson:+.4f})")
     print(f"📊 True zero ratio:                   {true_zero_ratio:.2%}")
-    print(f"📊 Predicted zero ratio (w/ τ*):      {best_pred_zero_ratio:.2%}")
-    print(f"📊 Zero Recall:                       {best_zero_recall:.4f}")
-    print(f"📊 Zero Precision:                    {best_zero_precision:.4f}")
-    print(f"📊 Zero F1:                           {zero_f1:.4f}")
+    print(f"📊 Pred zero ratio (Poisson-τ):       {best_pred_zero_ratio_poi:.2%}")
+    print(f"📊 Pred zero ratio (F1-τ):            {best_pred_zero_ratio_f1:.2%}")
+    print(f"📊 Zero F1 (Poisson-τ):               {zero_f1_poisson:.4f}")
+    print(f"📊 Zero F1 (F1-τ):                    {best_f1:.4f}")
+    print(f"📊 Zero Recall (used τ={use_threshold:.2f}):  {final_zero_recall:.4f}")
+    print(f"📊 Zero Precision (used τ={use_threshold:.2f}): {final_zero_precision:.4f}")
+    print(f"📊 Zero F1 (used τ={use_threshold:.2f}):       {final_zero_f1:.4f}")
     # ----------------------------
     summary = {
         'target_name': target_name,
@@ -415,11 +468,13 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         'soft_poisson': soft_poisson,
         'classifier_logloss': classifier_logloss,
         'regressor_poisson_pos': regressor_poisson_pos,
-        'hurdle_threshold': best_threshold,
-        'valid_zero_recall': best_zero_recall,
-        'valid_zero_precision': best_zero_precision,
-        'valid_zero_f1': zero_f1,
-        'valid_pred_zero_ratio': best_pred_zero_ratio,
+        'hurdle_threshold': use_threshold,
+        'hurdle_threshold_poisson': best_tau_poisson,
+        'hurdle_threshold_f1': best_tau_f1,
+        'valid_zero_recall': final_zero_recall,
+        'valid_zero_precision': final_zero_precision,
+        'valid_zero_f1': final_zero_f1,
+        'valid_pred_zero_ratio': n_final_pred_zero / len(y_valid_raw),
         'valid_true_zero_ratio': true_zero_ratio,
         'train_size': len(X_train),
         'valid_size': len(X_valid),
@@ -427,11 +482,13 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         'valid_time_range': valid_time_range,
     }
 
-    # Pack and return models (with threshold)
+    # Pack and return models (with the selected threshold)
     return {
         'classifier': classifier,
         'regressor': regressor,
-        'threshold': best_threshold
+        'threshold': use_threshold,
+        'threshold_poisson': best_tau_poisson,
+        'threshold_f1': best_tau_f1,
     }, summary
 
 
@@ -552,7 +609,9 @@ if __name__ == "__main__":
 
         output_file = os.path.join(run_output_dir, PREDICTION_OUTPUT_TEMPLATE.format(scale=scale_tag, ts=run_timestamp))
         predict_on_test_data(models_dict, feature_cols, TEST_FILE, output_file)
-        
+
+        # 汇总CSV写入时间戳文件夹内
+        summary_csv = TRAINING_SUMMARY_CSV if TRAINING_SUMMARY_CSV else os.path.join(run_output_dir, 'training_summary.csv')
         run_summary_row = build_run_summary_row(
             run_timestamp=run_timestamp,
             scale_tag=scale_tag,
@@ -574,8 +633,8 @@ if __name__ == "__main__":
                 'cb_iterations': CB_ITERATIONS,
             },
         )
-        append_summary_row(TRAINING_SUMMARY_CSV, run_summary_row)
-        print(f"Run summary appended to: {TRAINING_SUMMARY_CSV}")
+        append_summary_row(summary_csv, run_summary_row)
+        print(f"Run summary appended to: {summary_csv}")
 
         print("\n" + "="*50)
         print(f"Hurdle model pipeline completed for scale {scale_tag}.")
