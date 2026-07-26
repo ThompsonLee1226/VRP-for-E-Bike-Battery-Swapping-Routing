@@ -150,8 +150,9 @@ def time_split(df, y_raw):
 def compute_metrics(y_true, y_pred) -> Dict:
     """统一计算所有评估指标。"""
     y_pred = np.clip(y_pred, 0, None)
+    y_pred_safe = np.clip(y_pred, 1e-6, None)  # Poisson deviance 要求 y_pred > 0
     return {
-        'Poisson': mean_poisson_deviance(y_true, y_pred),
+        'Poisson': mean_poisson_deviance(y_true, y_pred_safe),
         'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
         'MAE': mean_absolute_error(y_true, y_pred),
     }
@@ -193,6 +194,7 @@ def compute_zero_inflated_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dic
 
     # Level 3: 条件误差分解
     def _safe_poisson(yt, yp):
+        yp = np.clip(yp, 1e-6, None)  # Poisson deviance 要求 y_pred > 0
         return mean_poisson_deviance(yt, yp) if len(yt) > 0 else np.nan
 
     def _safe_rmse(yt, yp):
