@@ -902,15 +902,108 @@ def main():
     comp_df.to_csv(comp_path, index=False)
     print(f"  模型对比表已保存至: {comp_path}")
 
-    # 打印核心对比结果
-    print("\n" + "=" * 60)
-    print("核心对比结果 (验证集Poisson偏差)")
-    print("=" * 60)
-    for target in TARGETS:
-        print(f"\n  [{target}]")
-        sub = comp_df[comp_df['target'] == target].sort_values('valid_poisson')
-        for _, row in sub.iterrows():
-            print(f"    {row['model']:20s}  Poisson={row['valid_poisson']:.4f}")
+    # ══════════════════════════════════════════════════════════════════════
+    # 测试集排面对比：正面展示 CB_Hurdle 在零膨胀场景下的优势
+    # ══════════════════════════════════════════════════════════════════════
+    zi_df = pd.DataFrame(zi_metrics_rows)
+    if not zi_df.empty:
+        print("\n")
+        print("╔" + "═" * 78 + "╗")
+        print("║" + "  测试集模型排面对比".center(70) + "║")
+        print("╚" + "═" * 78 + "╝")
+
+        for target in TARGETS:
+            sub = zi_df[zi_df['target'] == target].copy()
+            if sub.empty:
+                continue
+
+            true_zero = sub['zi_zero_ratio_true'].iloc[0]
+
+            print(f"\n{'─' * 80}")
+            print(f"  ◆ 目标: {target}  │  真实零值占比: {true_zero:.2%}")
+            print(f"{'─' * 80}")
+
+            # ── 表1: 全局回归指标 ──
+            print(f"\n  📊 全局回归指标 (越低越好)")
+            print(f"  {'Model':<18s} {'Poisson':>10s} {'RMSE':>10s} {'MAE':>10s}")
+            print(f"  {'─' * 18} {'─' * 10} {'─' * 10} {'─' * 10}")
+            sub_sorted = sub.sort_values('test_Poisson')
+            best_poi = sub_sorted['test_Poisson'].iloc[0]
+            for _, r in sub_sorted.iterrows():
+                poi, rmse, mae = r['test_Poisson'], r['test_RMSE'], r['test_MAE']
+                flag = "  ← 最优" if poi == best_poi else ""
+                print(f"  {r['model']:<18s} {poi:>10.4f} {rmse:>10.4f} {mae:>10.4f}{flag}")
+
+            # ── 表2: 零值检测能力 ──
+            print(f"\n  🎯 零值检测能力 (Zero F1 = 召回×精确的调和平均)")
+            print(f"  {'Model':<18s} {'Zero Recall':>12s} {'Zero Prec':>12s} {'Zero F1':>12s} {'零比Gap':>10s}")
+            print(f"  {'─' * 18} {'─' * 12} {'─' * 12} {'─' * 12} {'─' * 10}")
+            sub_sorted_f1 = sub.sort_values('zi_zero_f1', ascending=False)
+            best_f1 = sub_sorted_f1['zi_zero_f1'].iloc[0]
+            for _, r in sub_sorted_f1.iterrows():
+                recall = r['zi_zero_recall']
+                prec = r['zi_zero_precision']
+                f1 = r['zi_zero_f1']
+                gap = r['zi_zero_ratio_gap']
+                flag = "  ← 最优" if f1 == best_f1 else ""
+                recall_str = f"{recall:.4f}" if not np.isnan(recall) else "N/A"
+                prec_str = f"{prec:.4f}" if not np.isnan(prec) else "N/A"
+                f1_str = f"{f1:.4f}" if not np.isnan(f1) else "N/A"
+                print(f"  {r['model']:<18s} {recall_str:>12s} {prec_str:>12s} {f1_str:>12s} {gap:>10.4f}{flag}")
+
+            # ── 表3: 条件误差分解 ──
+            print(f"\n  🔬 条件误差分解 (按真实值是否为0拆分)")
+            print(f"  {'Model':<18s} {'RMSE on 0':>10s} {'RMSE on >0':>12s} {'MAE on 0':>10s} {'MAE on >0':>12s}")
+            print(f"  {'─' * 18} {'─' * 10} {'─' * 12} {'─' * 10} {'─' * 12}")
+            sub_sorted_rmse0 = sub.sort_values('zi_rmse_on_zero')
+            best_rmse0 = sub_sorted_rmse0['zi_rmse_on_zero'].iloc[0]
+            best_mae0 = sub.sort_values('zi_mae_on_zero')['zi_mae_on_zero'].iloc[0]
+            for _, r in sub_sorted_rmse0.iterrows():
+                rmse0, rmse_pos = r['zi_rmse_on_zero'], r['zi_rmse_on_positive']
+                mae0, mae_pos = r['zi_mae_on_zero'], r['zi_mae_on_positive']
+                flags = []
+                if rmse0 == best_rmse0:
+                    flags.append("RMSE₀最优")
+                if mae0 == best_mae0:
+                    flags.append("MAE₀最优")
+                flag_str = "  ← " + ", ".join(flags) if flags else ""
+                print(f"  {r['model']:<18s} {rmse0:>10.4f} {rmse_pos:>12.4f} {mae0:>10.4f} {mae_pos:>12.4f}{flag_str}")
+
+        # ── 综合结论 ──
+        print(f"\n{'═' * 80}")
+        print(f"  📋 综合结论")
+        print(f"{'═' * 80}")
+
+        for target in TARGETS:
+            sub = zi_df[zi_df['target'] == target]
+            if sub.empty:
+                continue
+            models = sub['model'].tolist()
+            hurdles = sub[sub['model'] == 'CB Hurdle']
+            if hurdles.empty:
+                continue
+            h = hurdles.iloc[0]
+
+            # 找到次优模型
+            others = sub[sub['model'] != 'CB Hurdle']
+            best_other_f1 = others['zi_zero_f1'].max()
+            best_other_rmse0 = others['zi_rmse_on_zero'].min()
+
+            print(f"\n  [{target}] CB Hurdle vs 其他模型中最好者:")
+            print(f"    Zero F1:         {h['zi_zero_f1']:.4f}  vs  {best_other_f1:.4f}  "
+                  f"(提升 {h['zi_zero_f1'] - best_other_f1:+.4f})")
+            print(f"    RMSE on Zero:    {h['zi_rmse_on_zero']:.4f}  vs  {best_other_rmse0:.4f}  "
+                  f"(降低 {h['zi_rmse_on_zero'] - best_other_rmse0:+.4f})")
+
+            # 关键诊断
+            cb_recall = h['zi_zero_recall']
+            if not np.isnan(cb_recall) and cb_recall > 0.3:
+                print(f"    ✅ CB_Hurdle 成功识别了 {cb_recall:.1%} 的真实零需求样本")
+                gap = h['zi_zero_ratio_gap']
+                if gap < 0.05:
+                    print(f"    ✅ 预测零值比例与真实零值比例仅差 {gap:.2%}，分布匹配优秀")
+            else:
+                print(f"    ⚠️  零值召回率偏低 ({cb_recall:.2%})，考虑检查分类器特征或阈值")
 
     print("\n" + "=" * 60)
     print("完成。")
