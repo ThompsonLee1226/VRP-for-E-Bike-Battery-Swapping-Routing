@@ -561,6 +561,7 @@ def train_cb_hurdle(
     # ── Poisson-约束的 F1 优化 ──
     # 允许 Poisson 最多退化 POISSON_BUDGET_PCT% (默认 10%)
     POISSON_BUDGET_PCT = 0.10
+    soft_poisson = soft_metrics['Poisson']  # τ=0 时的基准 Poisson
     poisson_ceiling = soft_poisson * (1.0 + POISSON_BUDGET_PCT)
 
     feasible = grid_poisson <= poisson_ceiling
