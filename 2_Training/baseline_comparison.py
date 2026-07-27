@@ -510,68 +510,74 @@ def train_cb_hurdle(
     soft_pred = np.clip(prob_valid * val_valid, 0, None)
     soft_metrics = compute_metrics(y_valid, soft_pred)
 
-    # --- Stage 4: Optimize zero-decision threshold τ ---
-    # 在验证集上搜索最优阈值 τ。
-    # 当 P(demand>0 | X) < τ 时，强制预测为 0；
-    # 否则预测 P(demand>0) × E(demand | demand>0)。
+    # --- Stage 4: Optimize zero-decision threshold τ (constrained) ---
+    # 在验证集上搜索最优阈值 τ，使用约束优化策略。
     #
-    # 关键设计：使用双准则搜索，因为 Poisson deviance 对假阴性（误判为零）的
-    # 惩罚极端不对称（一个假零 ≈ 70+ deviance，一个真零仅节省 ≈ 0.2 deviance），
-    # 导致纯 Poisson 准则下 τ* 几乎总是 0。
-    # 因此同时报告 Poisson-最优 τ 和 F1-最优 τ。
+    # 关键设计（v2 — 修复 Poisson 暴涨问题）：
+    #   纯 Poisson 准则下 τ* 几乎总是 0（假阴性惩罚极端不对称）。
+    #   纯 F1 准则下 τ* 过于激进（~0.59），导致 Poisson 暴涨 3-4×。
+    #
+    #   新策略：Poisson-约束的 F1 最大化 ——
+    #   在 Poisson deviance 不超过 soft-product 的 P% 范围内，选择 F1 最高的 τ。
+    #   每个 τ 对应的 soft_pred 只在 prob < τ 的样本上被截断为零，
+    #   未被截断的样本仍使用 soft_pred，因此 Poisson 退化完全来自新增的假阴性。
     eps = 1e-6
     n_true_zero = (y_valid <= eps).sum()
     true_zero_ratio = n_true_zero / len(y_valid)
 
-    # Poisson-based τ search
-    best_tau_poisson = 0.0
-    best_poisson = soft_metrics['Poisson']
-    best_zero_recall_poi = 0.0
-    best_zero_precision_poi = np.nan
-    best_pred_zero_ratio_poi = 0.0
+    # ── 第一轮搜索：记录所有 τ 对应的指标 ──
+    grid_tau = np.arange(0.01, 0.91, 0.02)
+    grid_poisson = np.empty(len(grid_tau))
+    grid_f1 = np.empty(len(grid_tau))
+    grid_recall = np.empty(len(grid_tau))
+    grid_precision = np.empty(len(grid_tau))
+    grid_pred_zero_ratio = np.empty(len(grid_tau))
 
-    # F1-based τ search
-    best_tau_f1 = 0.0
-    best_f1 = 0.0
-    best_zero_recall_f1 = 0.0
-    best_zero_precision_f1 = np.nan
-    best_pred_zero_ratio_f1 = 0.0
-    best_poisson_at_f1 = soft_metrics['Poisson']
-
-    for tau in np.arange(0.01, 0.91, 0.02):
+    for i, tau in enumerate(grid_tau):
         pred_zero_mask = prob_valid < tau
         thresh_pred = np.where(pred_zero_mask, 0.0, soft_pred)
-        # mean_poisson_deviance 要求 y_pred > 0，裁剪到 eps 保留相对排序
         thresh_pred_safe = np.clip(thresh_pred, eps, None)
-        thresh_poisson = mean_poisson_deviance(y_valid, thresh_pred_safe)
+        grid_poisson[i] = mean_poisson_deviance(y_valid, thresh_pred_safe)
 
         n_pred_zero = pred_zero_mask.sum()
         n_correct_zero = ((y_valid <= eps) & pred_zero_mask).sum()
-        zero_recall = n_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
-        zero_precision = n_correct_zero / n_pred_zero if n_pred_zero > 0 else np.nan
-        zero_f1 = (2 * zero_recall * zero_precision / (zero_recall + zero_precision)
-                   if (zero_recall + zero_precision) > 0 else 0.0)
+        rec = n_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
+        prec = n_correct_zero / n_pred_zero if n_pred_zero > 0 else 0.0
+        f1 = (2 * rec * prec / (rec + prec) if (rec + prec) > 0 else 0.0)
+        grid_recall[i] = rec
+        grid_precision[i] = prec
+        grid_f1[i] = f1
+        grid_pred_zero_ratio[i] = n_pred_zero / len(y_valid)
 
-        # 记录 Poisson-最优 τ
-        if thresh_poisson < best_poisson:
-            best_poisson = thresh_poisson
-            best_tau_poisson = tau
-            best_zero_recall_poi = zero_recall
-            best_zero_precision_poi = zero_precision
-            best_pred_zero_ratio_poi = n_pred_zero / len(y_valid)
+    # ── 无约束极值点 ──
+    i_poisson_best = int(np.argmin(grid_poisson))
+    i_f1_best = int(np.argmax(grid_f1))
 
-        # 记录 F1-最优 τ
-        if zero_f1 > best_f1:
-            best_f1 = zero_f1
-            best_tau_f1 = tau
-            best_zero_recall_f1 = zero_recall
-            best_zero_precision_f1 = zero_precision
-            best_pred_zero_ratio_f1 = n_pred_zero / len(y_valid)
-            best_poisson_at_f1 = thresh_poisson
+    best_tau_poisson = float(grid_tau[i_poisson_best])
+    best_tau_f1 = float(grid_tau[i_f1_best])
+    best_poisson = float(grid_poisson[i_poisson_best])
+    best_f1 = float(grid_f1[i_f1_best])
 
-    # 选择默认阈值：优先使用 Poisson-最优 τ；若为 0 则回退到 F1-最优 τ
-    # （因为 τ=0 意味着"不预测任何零值"，Hurdle 模型的核心价值未完全发挥）
-    use_threshold = best_tau_poisson if best_tau_poisson > 0 else best_tau_f1
+    # ── Poisson-约束的 F1 优化 ──
+    # 允许 Poisson 最多退化 POISSON_BUDGET_PCT% (默认 10%)
+    POISSON_BUDGET_PCT = 0.10
+    poisson_ceiling = soft_poisson * (1.0 + POISSON_BUDGET_PCT)
+
+    feasible = grid_poisson <= poisson_ceiling
+    if feasible.any():
+        # 约束可行：在 Poisson 退化 ≤10% 的 τ 中选 F1 最高的
+        feasible_f1 = np.where(feasible, grid_f1, -1.0)
+        i_constrained = int(np.argmax(feasible_f1))
+        use_threshold = float(grid_tau[i_constrained])
+        threshold_strategy = f'constrained (Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
+    else:
+        # 所有 τ 都使 Poisson 退化 >10%：选择 Poisson 退化最小的 τ
+        # （退化最小的通常是 τ 最小者，即尽量少截断）
+        poisson_increase = grid_poisson - soft_poisson
+        i_constrained = int(np.argmin(poisson_increase))
+        use_threshold = float(grid_tau[i_constrained])
+        threshold_strategy = 'minimal-degradation fallback'
+
     final_pred = np.where(prob_valid < use_threshold, 0.0, soft_pred)
     final_metrics = compute_metrics(y_valid, final_pred)
 
@@ -582,23 +588,22 @@ def train_cb_hurdle(
         'od_wait': 80,
         'best_iteration': regressor.get_best_iteration(),
         'training_seconds': round(elapsed, 1),
-        # 原 soft-product 指标（用于对比 τ 优化带来的增量）
+        # 原 soft-product 指标（τ=0，Hurdle 的"纯 Poisson"性能）
         **{f'valid_{k.lower()}_soft': v for k, v in soft_metrics.items()},
-        # 最终指标（应用阈值后）
+        # 最终指标（应用约束优化阈值后）
         **{f'valid_{k.lower()}': v for k, v in final_metrics.items()},
         # 阈值优化结果
         'hurdle_threshold_poisson': best_tau_poisson,
         'hurdle_threshold_f1': best_tau_f1,
         'hurdle_threshold_used': use_threshold,
+        'hurdle_threshold_strategy': threshold_strategy,
         'valid_true_zero_ratio': round(true_zero_ratio, 4),
-        'valid_pred_zero_ratio_poisson': round(best_pred_zero_ratio_poi, 4),
-        'valid_pred_zero_ratio_f1': round(best_pred_zero_ratio_f1, 4),
-        'valid_zero_f1_poisson': round(
-            2 * best_zero_recall_poi * best_zero_precision_poi /
-            (best_zero_recall_poi + best_zero_precision_poi) if
-            (best_zero_recall_poi + best_zero_precision_poi) > 0 else 0.0, 4
-        ),
+        'valid_pred_zero_ratio_poisson': round(grid_pred_zero_ratio[i_poisson_best], 4),
+        'valid_pred_zero_ratio_f1': round(grid_pred_zero_ratio[i_f1_best], 4),
+        'valid_pred_zero_ratio_used': round(float(grid_pred_zero_ratio[i_constrained]), 4),
+        'valid_zero_f1_poisson': round(float(grid_f1[i_poisson_best]), 4),
         'valid_zero_f1_f1': round(best_f1, 4),
+        'valid_zero_f1_used': round(float(grid_f1[i_constrained]), 4),
         'valid_classifier_logloss': round(log_loss(y_valid_bin, prob_valid), 4),
     }
 
@@ -688,12 +693,15 @@ def main():
         model_dict, info = train_cb_hurdle(X_train, y_train, X_valid, y_valid)
         model_objects.setdefault('CB_Hurdle', {})[target] = model_dict
 
-        print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
-              f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}, "
+        print(f"    验证集: Poisson(soft)={info['valid_poisson_soft']:.4f}, "
+              f"Poisson(hard)={info['valid_poisson']:.4f}, "
+              f"MAE={info['valid_mae']:.4f}, best_iter={info['best_iteration']}, "
               f"τ_used={info['hurdle_threshold_used']:.2f}")
-        print(f"    阈值优化: τ_Poisson={info['hurdle_threshold_poisson']:.2f}, "
+        print(f"    阈值优化 [{info.get('hurdle_threshold_strategy', 'N/A')}]: "
+              f"τ_Poisson={info['hurdle_threshold_poisson']:.2f}, "
               f"τ_F1={info['hurdle_threshold_f1']:.2f}, "
-              f"F1_poi={info['valid_zero_f1_poisson']:.4f}, F1_f1={info['valid_zero_f1_f1']:.4f}")
+              f"F1_poi={info['valid_zero_f1_poisson']:.4f}, F1_f1={info['valid_zero_f1_f1']:.4f}, "
+              f"F1_used={info.get('valid_zero_f1_used', 'N/A')}")
         print(f"    Classifier Logloss={info['valid_classifier_logloss']:.4f}, "
               f"真零比={info['valid_true_zero_ratio']:.2%}, "
               f"预测零比(F1)={info['valid_pred_zero_ratio_f1']:.2%}")
@@ -887,11 +895,13 @@ def main():
                      'num_leaves', 'min_child_samples', 'subsample',
                      'n_estimators', 'max_depth', 'min_samples_leaf',
                      'best_iteration',
-                     'valid_poisson', 'valid_rmse', 'valid_mae',
                      'valid_poisson_soft', 'valid_rmse_soft', 'valid_mae_soft',
+                     'valid_poisson', 'valid_rmse', 'valid_mae',
                      'hurdle_threshold_poisson', 'hurdle_threshold_f1', 'hurdle_threshold_used',
+                     'hurdle_threshold_strategy',
                      'valid_true_zero_ratio', 'valid_pred_zero_ratio_poisson',
-                     'valid_pred_zero_ratio_f1', 'valid_zero_f1_poisson', 'valid_zero_f1_f1',
+                     'valid_pred_zero_ratio_f1', 'valid_pred_zero_ratio_used',
+                     'valid_zero_f1_poisson', 'valid_zero_f1_f1', 'valid_zero_f1_used',
                      'valid_classifier_logloss',
                      'training_seconds', 'notes']
     existing = [c for c in priority_cols if c in comp_df.columns]
