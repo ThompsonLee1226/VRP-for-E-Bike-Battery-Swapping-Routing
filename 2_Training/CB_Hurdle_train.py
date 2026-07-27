@@ -108,7 +108,8 @@ def load_and_preprocess(file_path, scale=None):
         'latitude', 'longitude',
         'temp_x_rain', 'available_power_bike_gap', 'is_rush_hour',
         'lag_rent_is_zero', 'lag_return_is_zero',
-        'rent_mean_7d_low', 'return_mean_7d_low'
+        'rent_mean_7d_low', 'return_mean_7d_low',
+        'is_night', 'lag_both_zero', 'low_demand_zone',
     ]
     
     return df, features
@@ -154,6 +155,26 @@ def add_feature_engineering(df):
         df['return_mean_7d_low'] = (df['return_mean_7d'] < 0.1).astype(int)
     else:
         df['return_mean_7d_low'] = 0
+
+    # ── 增强零需求特征 v2：更精准地识别零需求场景 ──
+
+    # 夜间标识（0-5点换电需求极低）
+    if 'hour' in df.columns:
+        df['is_night'] = df['hour'].isin([0, 1, 2, 3, 4, 5]).astype(int)
+    else:
+        df['is_night'] = 0
+
+    # 上一时刻租还双零 → 本时刻大概率也为零（强零需求惯性信号）
+    if 'lag_rent_is_zero' in df.columns and 'lag_return_is_zero' in df.columns:
+        df['lag_both_zero'] = (df['lag_rent_is_zero'] & df['lag_return_is_zero']).astype(int)
+    else:
+        df['lag_both_zero'] = 0
+
+    # 7日双低需求区域（租金均值均 < 0.3）
+    if 'rent_mean_7d' in df.columns and 'return_mean_7d' in df.columns:
+        df['low_demand_zone'] = ((df['rent_mean_7d'] < 0.3) & (df['return_mean_7d'] < 0.3)).astype(int)
+    else:
+        df['low_demand_zone'] = 0
 
     return df
 
@@ -354,20 +375,24 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     classifier_logloss = log_loss(y_valid_bin, prob_valid)
     regressor_poisson_pos = mean_poisson_deviance(y_valid_pos, regressor.predict(X_valid_pos))
 
-    # --- Stage 4: Optimize zero-decision threshold τ (constrained) ---
-    # 在验证集上搜索最优阈值 τ，使用约束优化策略。
-    #
-    # 关键设计（v2 — 修复 Poisson 暴涨问题）：
-    #   纯 Poisson 准则下 τ* 几乎总是 0（假阴性惩罚极端不对称）。
-    #   纯 F1 准则下 τ* 过于激进（~0.59），导致 Poisson 暴涨 3-4×。
-    #
-    #   新策略：Poisson-约束的 F1 最大化 ——
-    #   在 Poisson deviance 不超过 soft-product 的 10% 范围内，选择 F1 最高的 τ。
-    print(f"\n--- Stage 4: Optimizing zero-decision threshold τ (constrained) ---")
+    # --- Stage 4: 分时段零决策阈值优化 (constrained, per-segment) ---
+    # 核心改进 v3：
+    #   不同时段的零值比例差异巨大（夜间 ~80% vs 高峰 ~20%）。
+    #   单一全局 τ 必须对高峰时段保守（假阴性代价高），导致夜间零召回不足。
+    #   新策略：按 rush hour 将验证集分为 peak / off_peak 两段，
+    #   每段独立做 Poisson-约束的 F1 最大化。
+    print(f"\n--- Stage 4: Optimizing zero-decision threshold τ (per-segment, constrained) ---")
     true_zero_ratio = (y_valid_raw <= eps).mean()
     n_true_zero = (y_valid_raw <= eps).sum()
 
-    # ── 第一轮搜索：记录所有 τ 对应的指标 ──
+    # ── 定义时段划分 ──
+    hour_valid = X_valid['hour'].values
+    mask_peak = np.isin(hour_valid, [7, 8, 9, 17, 18, 19])
+    mask_off_peak = ~mask_peak
+
+    segment_masks = {'peak': mask_peak, 'off_peak': mask_off_peak}
+
+    # ── 全局网格搜索（保留用于对比输出）──
     grid_tau = np.arange(0.01, 0.91, 0.02)
     grid_poisson = np.empty(len(grid_tau))
     grid_f1 = np.empty(len(grid_tau))
@@ -391,7 +416,7 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         grid_f1[i] = f1
         grid_pred_zero_ratio[i] = n_pred_zero / len(y_valid_raw)
 
-    # ── 无约束极值点 ──
+    # ── 无约束极值点（全局，用于参考）──
     i_poisson_best = int(np.argmin(grid_poisson))
     i_f1_best = int(np.argmax(grid_f1))
 
@@ -400,29 +425,87 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
     best_poisson = float(grid_poisson[i_poisson_best])
     best_f1 = float(grid_f1[i_f1_best])
 
-    # ── Poisson-约束的 F1 优化 ──
-    POISSON_BUDGET_PCT = 0.10
-    poisson_ceiling = soft_poisson * (1.0 + POISSON_BUDGET_PCT)
+    # ── 分时段 Poisson-约束的 F1 优化 ──
+    POISSON_BUDGET_PCT = 0.15
+    segment_thresholds = {}
+    segment_results = {}
 
-    feasible = grid_poisson <= poisson_ceiling
-    if feasible.any():
-        feasible_f1 = np.where(feasible, grid_f1, -1.0)
-        i_constrained = int(np.argmax(feasible_f1))
-        use_threshold = float(grid_tau[i_constrained])
-        threshold_strategy = f'constrained (Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
-    else:
-        poisson_increase = grid_poisson - soft_poisson
-        i_constrained = int(np.argmin(poisson_increase))
-        use_threshold = float(grid_tau[i_constrained])
-        threshold_strategy = 'minimal-degradation fallback'
+    for seg_name, seg_mask in segment_masks.items():
+        n_seg = seg_mask.sum()
+        if n_seg == 0:
+            continue
 
-    # 应用最终阈值
-    final_pred = np.where(prob_valid < use_threshold, 0.0, soft_pred)
+        y_seg = y_valid_raw[seg_mask]
+        prob_seg = prob_valid[seg_mask]
+        soft_seg = soft_pred[seg_mask]
+        n_true_zero_seg = (y_seg <= eps).sum()
+
+        seg_poisson = np.empty(len(grid_tau))
+        seg_f1 = np.empty(len(grid_tau))
+        seg_recall = np.empty(len(grid_tau))
+        seg_precision = np.empty(len(grid_tau))
+        seg_pred_zero_ratio = np.empty(len(grid_tau))
+
+        for i, tau in enumerate(grid_tau):
+            pred_zero_mask_seg = prob_seg < tau
+            thresh_pred_seg = np.where(pred_zero_mask_seg, 0.0, soft_seg)
+            thresh_pred_safe_seg = np.clip(thresh_pred_seg, eps, None)
+            seg_poisson[i] = mean_poisson_deviance(y_seg, thresh_pred_safe_seg)
+
+            n_pred_zero_seg = pred_zero_mask_seg.sum()
+            n_correct_zero_seg = ((y_seg <= eps) & pred_zero_mask_seg).sum()
+            rec_seg = n_correct_zero_seg / n_true_zero_seg if n_true_zero_seg > 0 else 0.0
+            prec_seg = n_correct_zero_seg / n_pred_zero_seg if n_pred_zero_seg > 0 else 0.0
+            f1_seg = (2 * rec_seg * prec_seg / (rec_seg + prec_seg)
+                      if (rec_seg + prec_seg) > 0 else 0.0)
+            seg_recall[i] = rec_seg
+            seg_precision[i] = prec_seg
+            seg_f1[i] = f1_seg
+            seg_pred_zero_ratio[i] = n_pred_zero_seg / n_seg
+
+        soft_poisson_seg = mean_poisson_deviance(
+            y_seg, np.clip(soft_seg, eps, None))
+        poisson_ceiling_seg = soft_poisson_seg * (1.0 + POISSON_BUDGET_PCT)
+
+        feasible_seg = seg_poisson <= poisson_ceiling_seg
+        if feasible_seg.any():
+            feasible_f1 = np.where(feasible_seg, seg_f1, -1.0)
+            i_best_seg = int(np.argmax(feasible_f1))
+            seg_strategy = f'constrained (Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
+        else:
+            poisson_increase_seg = seg_poisson - soft_poisson_seg
+            i_best_seg = int(np.argmin(poisson_increase_seg))
+            seg_strategy = 'minimal-degradation fallback'
+
+        segment_thresholds[seg_name] = float(grid_tau[i_best_seg])
+        segment_results[seg_name] = {
+            'tau': float(grid_tau[i_best_seg]),
+            'f1': float(seg_f1[i_best_seg]),
+            'recall': float(seg_recall[i_best_seg]),
+            'precision': float(seg_precision[i_best_seg]),
+            'poisson': float(seg_poisson[i_best_seg]),
+            'soft_poisson': float(soft_poisson_seg),
+            'pred_zero_ratio': float(seg_pred_zero_ratio[i_best_seg]),
+            'true_zero_ratio': float(n_true_zero_seg / n_seg),
+            'n_samples': int(n_seg),
+            'strategy': seg_strategy,
+        }
+
+    # ── 应用分时段阈值 ──
+    final_pred = np.zeros_like(soft_pred)
+    for seg_name, seg_mask in segment_masks.items():
+        if seg_name in segment_thresholds:
+            tau_seg = segment_thresholds[seg_name]
+            final_pred[seg_mask] = np.where(
+                prob_valid[seg_mask] < tau_seg, 0.0, soft_pred[seg_mask])
+        else:
+            final_pred[seg_mask] = soft_pred[seg_mask]
+
     final_pred_safe = np.clip(final_pred, eps, None)
     final_poisson = mean_poisson_deviance(y_valid_raw, final_pred_safe)
 
-    # 最终阈值下的零值指标
-    final_pred_zero_mask = prob_valid < use_threshold
+    # 最终零值指标（全验证集）
+    final_pred_zero_mask = final_pred <= eps
     n_final_pred_zero = final_pred_zero_mask.sum()
     n_final_correct_zero = ((y_valid_raw <= eps) & final_pred_zero_mask).sum()
     final_zero_recall = n_final_correct_zero / n_true_zero if n_true_zero > 0 else 0.0
@@ -431,24 +514,28 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
                      (final_zero_recall + final_zero_precision)
                      if (final_zero_recall + final_zero_precision) > 0 else 0.0)
 
+    # 为兼容性保留全局 use_threshold
+    use_threshold = segment_thresholds.get('off_peak', segment_thresholds.get('peak', 0.0))
+    threshold_strategy = f'per-segment constrained (Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
+
     print(f"🎉 [{target_name}] Hurdle model training completed!")
     print(f"📌 Classifier Logloss (valid):        {classifier_logloss:.4f}")
     print(f"📌 Regressor Poisson on positives:    {regressor_poisson_pos:.4f}")
     print(f"📌 Soft-product Poisson (τ=0):        {soft_poisson:.4f}")
-    print(f"─── Zero-Threshold Optimization [{threshold_strategy}] ───")
-    print(f"🎯 Poisson-optimal τ*:                {best_tau_poisson:.2f}  "
+    print(f"─── Per-Segment Zero-Threshold Optimization [{threshold_strategy}] ───")
+    print(f"🎯 Poisson-optimal τ* (global):       {best_tau_poisson:.2f}  "
           f"(Poisson={best_poisson:.4f})")
-    print(f"🎯 F1-optimal τ*:                     {best_tau_f1:.2f}  "
-          f"(F1={best_f1:.4f}, Poisson={grid_poisson[i_f1_best]:.4f})")
-    print(f"🎯 Constrained-optimal τ*:            {use_threshold:.2f}  "
-          f"(F1={grid_f1[i_constrained]:.4f}, Poisson={grid_poisson[i_constrained]:.4f})")
-    print(f"📊 True zero ratio:                   {true_zero_ratio:.2%}")
-    print(f"📊 Pred zero ratio (Poisson-τ):       {grid_pred_zero_ratio[i_poisson_best]:.2%}")
-    print(f"📊 Pred zero ratio (F1-τ):            {grid_pred_zero_ratio[i_f1_best]:.2%}")
-    print(f"📊 Pred zero ratio (constrained-τ):   {grid_pred_zero_ratio[i_constrained]:.2%}")
-    print(f"📊 Zero F1 (Poisson-τ):               {grid_f1[i_poisson_best]:.4f}")
-    print(f"📊 Zero F1 (F1-τ):                    {best_f1:.4f}")
-    print(f"📊 Zero F1 (constrained-τ):           {grid_f1[i_constrained]:.4f}")
+    print(f"🎯 F1-optimal τ* (global):            {best_tau_f1:.2f}  "
+          f"(F1={best_f1:.4f})")
+    for seg_name in ['peak', 'off_peak']:
+        if seg_name in segment_results:
+            r = segment_results[seg_name]
+            print(f"🎯 {seg_name}: τ={r['tau']:.2f}  F1={r['f1']:.4f}  "
+                  f"Recall={r['recall']:.4f}  Prec={r['precision']:.4f}  "
+                  f"Poisson={r['poisson']:.4f}  (n={r['n_samples']}, "
+                  f"true_zero={r['true_zero_ratio']:.1%})")
+    print(f"📊 Overall Zero F1 (per-segment τ):   {final_zero_f1:.4f}")
+    print(f"📊 Overall Pred zero ratio:           {n_final_pred_zero / len(y_valid_raw):.2%}")
     # ----------------------------
     summary = {
         'target_name': target_name,
@@ -471,15 +558,21 @@ def train_model(df, features, target_name, scale_tag='all', run_timestamp='unkno
         'valid_size': len(X_valid),
         'train_time_range': train_time_range,
         'valid_time_range': valid_time_range,
+        # 分时段信息
+        'segment_threshold_peak': segment_thresholds.get('peak', np.nan),
+        'segment_threshold_off_peak': segment_thresholds.get('off_peak', np.nan),
+        'segment_f1_peak': segment_results.get('peak', {}).get('f1', np.nan),
+        'segment_f1_off_peak': segment_results.get('off_peak', {}).get('f1', np.nan),
     }
 
-    # Pack and return models (with the selected threshold)
+    # Pack and return models (with the selected thresholds)
     return {
         'classifier': classifier,
         'regressor': regressor,
         'threshold': use_threshold,
         'threshold_poisson': best_tau_poisson,
         'threshold_f1': best_tau_f1,
+        'segment_thresholds': segment_thresholds,
     }, summary
 
 
@@ -522,22 +615,44 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
 
     X_test = test_df[feature_cols]
 
-    # === Rent Prediction (Hurdle: 若 P(rent>0) < τ 则硬判为零) ===
+    # === Rent Prediction (Hurdle: 分时段阈值，P(rent>0) < τ_seg 则硬判为零) ===
     rent_prob = models_dict['rent']['classifier'].predict_proba(X_test)[:, 1]
     rent_val = models_dict['rent']['regressor'].predict(X_test)
     rent_soft = np.clip(rent_prob * rent_val, 0, None)
-    rent_threshold = models_dict['rent'].get('threshold', 0.0)
-    rent_pred = np.where(rent_prob < rent_threshold, 0.0, rent_soft)
-    print(f"  rent 阈值 τ={rent_threshold:.2f}, "
+
+    rent_segment_thresholds = models_dict['rent'].get('segment_thresholds', {})
+    if rent_segment_thresholds:
+        hour_test = X_test['hour'].values
+        mask_peak_test = np.isin(hour_test, [7, 8, 9, 17, 18, 19])
+        rent_pred = np.zeros_like(rent_soft)
+        for seg_name, seg_mask in [('peak', mask_peak_test), ('off_peak', ~mask_peak_test)]:
+            tau_seg = rent_segment_thresholds.get(seg_name, models_dict['rent'].get('threshold', 0.0))
+            rent_pred[seg_mask] = np.where(rent_prob[seg_mask] < tau_seg, 0.0, rent_soft[seg_mask])
+    else:
+        rent_threshold = models_dict['rent'].get('threshold', 0.0)
+        rent_pred = np.where(rent_prob < rent_threshold, 0.0, rent_soft)
+    print(f"  rent τ_peak={rent_segment_thresholds.get('peak', 'N/A')}, "
+          f"τ_off={rent_segment_thresholds.get('off_peak', 'N/A')}, "
           f"预测零值占比={float((rent_pred <= 1e-6).mean()):.2%}")
 
-    # === Return Prediction (Hurdle: 若 P(return>0) < τ 则硬判为零) ===
+    # === Return Prediction (Hurdle: 分时段阈值) ===
     return_prob = models_dict['return']['classifier'].predict_proba(X_test)[:, 1]
     return_val = models_dict['return']['regressor'].predict(X_test)
     return_soft = np.clip(return_prob * return_val, 0, None)
-    return_threshold = models_dict['return'].get('threshold', 0.0)
-    return_pred = np.where(return_prob < return_threshold, 0.0, return_soft)
-    print(f"  return 阈值 τ={return_threshold:.2f}, "
+
+    return_segment_thresholds = models_dict['return'].get('segment_thresholds', {})
+    if return_segment_thresholds:
+        hour_test = X_test['hour'].values
+        mask_peak_test = np.isin(hour_test, [7, 8, 9, 17, 18, 19])
+        return_pred = np.zeros_like(return_soft)
+        for seg_name, seg_mask in [('peak', mask_peak_test), ('off_peak', ~mask_peak_test)]:
+            tau_seg = return_segment_thresholds.get(seg_name, models_dict['return'].get('threshold', 0.0))
+            return_pred[seg_mask] = np.where(return_prob[seg_mask] < tau_seg, 0.0, return_soft[seg_mask])
+    else:
+        return_threshold = models_dict['return'].get('threshold', 0.0)
+        return_pred = np.where(return_prob < return_threshold, 0.0, return_soft)
+    print(f"  return τ_peak={return_segment_thresholds.get('peak', 'N/A')}, "
+          f"τ_off={return_segment_thresholds.get('off_peak', 'N/A')}, "
           f"预测零值占比={float((return_pred <= 1e-6).mean()):.2%}")
 
     # --- Assemble output in Grid_Utility format ---
