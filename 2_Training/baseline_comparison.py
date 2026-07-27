@@ -64,17 +64,26 @@ FEATURES = [
     'is_night', 'lag_both_zero', 'low_demand_zone',
     # 时间循环编码：帮助分类器捕捉"零点附近→凌晨→黎明"的平滑零需求模式
     'hour_sin', 'hour_cos', 'day_of_week_sin', 'day_of_week_cos',
+    # P1.1 零需求专属交互特征：组合零值信号与时间信号
+    'lag_zero_x_night', 'lag_zero_x_rush', 'low_demand_x_night',
+    'zero_momentum_rent', 'zero_momentum_return',
+    # 回归器量级交互特征（对正样本需求大小的预测有帮助，所有模型共享）
+    'temp_squared', 'rent_return_lag_interaction', 'bike_count_interaction',
 ]
 
 # ── Hurdle 分类器 / 回归器差异化特征集 ──
-# 分类器使用全部特征（包括零值检测专属特征），
-# 回归器额外使用量级交互特征（帮助预测正样本的需求大小）
-CLASSIFIER_FEATURES = FEATURES  # 分类器用全部特征
-REGRESSOR_FEATURES = FEATURES + [
-    'temp_squared',                  # 温度非线性效应
-    'rent_return_lag_interaction',   # lag 租还量级交互
-    'bike_count_interaction',        # 车辆状态交互
-]
+# 分类器使用全部特征（零值检测 + 零需求交互特征有助于区分零/非零）；
+# 回归器排除零需求专属特征（这些特征对"预测正值大小"无意义，且可能引入噪声）；
+# 回归器保留量级交互特征（temp_squared, rent_return_lag_interaction, bike_count_interaction）。
+CLASSIFIER_FEATURES = FEATURES  # 分类器用全部特征（含零值交互特征）
+REGRESSOR_FEATURES = [f for f in FEATURES if f not in [
+    # 排除零需求专属特征——回归器只关心"正值的大小"
+    'lag_rent_is_zero', 'lag_return_is_zero',
+    'rent_mean_7d_low', 'return_mean_7d_low',
+    'is_night', 'lag_both_zero', 'low_demand_zone',
+    'lag_zero_x_night', 'lag_zero_x_rush', 'low_demand_x_night',
+    'zero_momentum_rent', 'zero_momentum_return',
+]]
 
 TARGETS = ['rent', 'return']
 
@@ -182,6 +191,40 @@ def add_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
         )
     else:
         df['bike_count_interaction'] = 0.0
+
+    # ── P1.1 零需求专属交互特征：组合零值信号与时间信号，提升分类器识别力 ──
+    # 核心思路：零需求不是单一因素决定的，而是多个弱信号的叠加效应。
+    # 例如 "上一时段为零 AND 夜间" → 极大概率持续为零；
+    # "上一时段为零 BUT 高峰时段" → 不确定性更大。
+    # 树模型天然能学习交互，但显式提供关键交互可降低 search space。
+
+    # (1) 零值惯性 × 时间上下文的组合信号
+    if 'lag_both_zero' in df.columns and 'is_night' in df.columns:
+        df['lag_zero_x_night'] = (df['lag_both_zero'] * df['is_night']).astype(int)
+    else:
+        df['lag_zero_x_night'] = 0
+
+    if 'lag_both_zero' in df.columns and 'is_rush_hour' in df.columns:
+        df['lag_zero_x_rush'] = (df['lag_both_zero'] * df['is_rush_hour']).astype(int)
+    else:
+        df['lag_zero_x_rush'] = 0
+
+    # (2) 低需求区域 × 夜间 = 超强零需求信号
+    if 'low_demand_zone' in df.columns and 'is_night' in df.columns:
+        df['low_demand_x_night'] = (df['low_demand_zone'] * df['is_night']).astype(int)
+    else:
+        df['low_demand_x_night'] = 0
+
+    # (3) 零值动量：短期零惯性 × 长期低需求 = 双向确认
+    if 'lag_rent_is_zero' in df.columns and 'rent_mean_7d_low' in df.columns:
+        df['zero_momentum_rent'] = (df['lag_rent_is_zero'] * df['rent_mean_7d_low']).astype(int)
+    else:
+        df['zero_momentum_rent'] = 0
+
+    if 'lag_return_is_zero' in df.columns and 'return_mean_7d_low' in df.columns:
+        df['zero_momentum_return'] = (df['lag_return_is_zero'] * df['return_mean_7d_low']).astype(int)
+    else:
+        df['zero_momentum_return'] = 0
 
     return df
 
@@ -594,20 +637,27 @@ def train_cb_hurdle(
         cat_features = ['h3']
     cat_indices = [list(X_train.columns).index(f) for f in cat_features if f in X_train.columns]
 
-    # Stage 1: 分类器（预测 demand > 0）
+    # Stage 1: 分类器（预测 demand > 0）—— 使用独立深度和正则化参数
     y_train_bin = (y_train > 0).astype(int)
     y_valid_bin = (y_valid > 0).astype(int)
+
+    # P1.3: 自动计算 scale_pos_weight (n_negative / n_positive)
+    # 正类=非零(少数, ~44%), 负类=零(多数, ~56%)
+    n_pos = y_train_bin.sum()
+    n_neg = len(y_train_bin) - n_pos
+    auto_scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
 
     classifier = cb.CatBoostClassifier(
         loss_function='Logloss',
         eval_metric='Logloss',
-        learning_rate=0.02,           # 更低学习率
-        depth=10,
-        l2_leaf_reg=4.0,
-        iterations=5000,               # 更多迭代空间
+        learning_rate=0.02,
+        depth=12,                      # P1.2: 分类器独立 depth（默认为 12，回归器保持 10）
+        l2_leaf_reg=6.0,               # P1.2: 更强的正则化防止过拟合
+        scale_pos_weight=auto_scale_pos_weight,  # P1.3: 平衡零/非零类别
+        iterations=5000,
         cat_features=cat_indices,
         od_type='Iter',
-        od_wait=80,                    # 更耐心
+        od_wait=80,
         random_seed=42,
         task_type='CPU',
         thread_count=-1,
@@ -618,13 +668,13 @@ def train_cb_hurdle(
     classifier.fit(X_train, y_train_bin, eval_set=(X_valid, y_valid_bin),
                    use_best_model=True, verbose=100)
 
-    # Stage 2: 回归器（仅正样本）
+    # Stage 2: 回归器（仅正样本，使用回归器专属特征集）
     mask_train_pos = y_train > 0
-    X_train_pos = X_train[mask_train_pos]
+    X_train_pos = X_train[mask_train_pos][REGRESSOR_FEATURES]
     y_train_pos = y_train[mask_train_pos]
 
     mask_valid_pos = y_valid > 0
-    X_valid_pos = X_valid[mask_valid_pos]
+    X_valid_pos = X_valid[mask_valid_pos][REGRESSOR_FEATURES]
     y_valid_pos = y_valid[mask_valid_pos]
 
     regressor = cb.CatBoostRegressor(
@@ -650,7 +700,7 @@ def train_cb_hurdle(
 
     # --- Stage 3: Soft-product prediction (no threshold) ---
     prob_valid = classifier.predict_proba(X_valid)[:, 1]
-    val_valid = np.clip(regressor.predict(X_valid), 0, None)
+    val_valid = np.clip(regressor.predict(X_valid[REGRESSOR_FEATURES]), 0, None)
     soft_pred = np.clip(prob_valid * val_valid, 0, None)
     soft_metrics = compute_metrics(y_valid, soft_pred)
 
@@ -805,7 +855,10 @@ def train_cb_hurdle(
 
     info = {
         'learning_rate': 0.02,
-        'depth': 10,
+        'depth': 10,                   # 回归器 depth
+        'cls_depth': 12,               # P1.2: 分类器独立 depth
+        'cls_l2_leaf_reg': 6.0,        # P1.2: 分类器独立正则化
+        'cls_scale_pos_weight': round(auto_scale_pos_weight, 3),  # P1.3
         'l2_leaf_reg': 4.0,
         'od_wait': 80,
         'best_iteration': regressor.get_best_iteration(),
@@ -1032,7 +1085,7 @@ def main():
         if 'CB_Hurdle' in model_objects:
             cb_hurdle = model_objects['CB_Hurdle'][target]
             prob_test = cb_hurdle['classifier'].predict_proba(df_test[FEATURES])[:, 1]
-            val_test = np.clip(cb_hurdle['regressor'].predict(df_test[FEATURES]), 0, None)
+            val_test = np.clip(cb_hurdle['regressor'].predict(df_test[REGRESSOR_FEATURES]), 0, None)
             soft_pred = np.clip(prob_test * val_test, 0, None)
 
             # 三段式分时段阈值：peak / shoulder / night 使用各自优化的 τ
@@ -1141,14 +1194,85 @@ def main():
                 if row['model'] == 'CB Hurdle' and row['target'] == target:
                     row.update({f'di_{k}': v for k, v in di.items()})
 
+        # ── P0.1 消融实验: 量化 Hurdle 各组件的边际贡献 ──
+        # 三个变体（复用已训练的 CB_Hurdle 组件，无需重新训练）:
+        #   (A) no_threshold:   τ=0 soft-product → 量化"阈值优化"的贡献
+        #   (B) classifier_only: 仅分类器（判零→0, 判非零→训练集正样本均值）→ 量化"回归器"的贡献
+        #   (C) regressor_only:  跳过分类器，全样本回归 → 量化"分类器"的贡献
+        if 'CB_Hurdle' in model_objects:
+            cb_hurdle = model_objects['CB_Hurdle'][target]
+            prob_test_abl = cb_hurdle['classifier'].predict_proba(df_test[FEATURES])[:, 1]
+            val_test_abl = np.clip(cb_hurdle['regressor'].predict(df_test[REGRESSOR_FEATURES]), 0, None)
+            soft_pred_abl = np.clip(prob_test_abl * val_test_abl, 0, None)
+
+            # 训练集正样本均值（classifier_only 变体使用）
+            train_pos_mean = float(df_train[df_train[target] > 0][target].mean())
+
+            # 变体 (A): CB_Hurdle w/o threshold — soft product (τ=0)
+            ablation_no_thresh = soft_pred_abl
+
+            # 变体 (B): CB_Classifier_Only — 判零→0, 判非零→正样本均值
+            use_threshold_abl = cb_hurdle.get('threshold', 0.5)
+            classifier_only_pred = np.where(prob_test_abl < use_threshold_abl,
+                                            0.0, train_pos_mean)
+
+            # 变体 (C): CB_Regressor_Only — 跳过分类器，全样本回归
+            regressor_only_pred = val_test_abl
+
+            ablation_variants = {
+                'CB_Hurdle_no_τ': ablation_no_thresh,
+                'CB_Classifier_Only': classifier_only_pred,
+                'CB_Regressor_Only': regressor_only_pred,
+            }
+
+            print(f"\n  ═══ P0.1 消融实验 — {target} ═══")
+            for variant_name, y_pred_abl in ablation_variants.items():
+                m_abl = compute_metrics(y_test, y_pred_abl)
+                zi_abl = compute_zero_inflated_metrics(y_test, y_pred_abl)
+                # 与 CatBoost baseline 做 McNemar 检验
+                if f'{target}_cb' in pred_df.columns:
+                    di_abl = compute_decision_impact_metrics(
+                        y_test, y_pred_abl, variant_name,
+                        y_pred_baseline=pred_df[f'{target}_cb'].values,
+                        baseline_name='CatBoost')
+                else:
+                    di_abl = compute_decision_impact_metrics(y_test, y_pred_abl, variant_name)
+
+                # 打印摘要
+                print(f"  ┌─ {variant_name}")
+                print(f"  │  Poisson={m_abl['Poisson']:.4f}  RMSE={m_abl['RMSE']:.4f}  "
+                      f"MAE={m_abl['MAE']:.4f}")
+                print(f"  │  Zero Recall={zi_abl['zero_recall']:.4f}  "
+                      f"Zero Precision={zi_abl['zero_precision']:.4f}  "
+                      f"Zero F1={zi_abl['zero_f1']:.4f}")
+                print(f"  │  Wasted Visit={di_abl['wasted_visit_rate']:.2%}  "
+                      f"Missed Demand={di_abl['missed_demand_rate']:.2%}  "
+                      f"TDB={di_abl['total_demand_bias']:+.2%}")
+                print(f"  └─ MAPZ={di_abl['mapz']:.4f}")
+
+                # 收集到对比表
+                zi_metrics_rows.append({
+                    'model': variant_name,
+                    'target': target,
+                    **{f'test_{k}': v for k, v in m_abl.items()},
+                    **{f'zi_{k}': v for k, v in zi_abl.items()},
+                    **{f'di_{k}': v for k, v in di_abl.items()},
+                })
+
+                # 保存各消融变体的独立预测集
+                all_model_preds.setdefault(variant_name, {})[target] = y_pred_abl
+
     # ── 保存合并预测文件 ──
     pred_path = os.path.join(args.output_dir, 'baseline_test_predictions.csv')
     pred_df.to_csv(pred_path, index=False)
     print(f"\n  合并测试集预测已保存至: {pred_path}")
 
-    # ── 分别保存四个模型的独立预测集（Grid_Utility 格式）──
+    # ── 分别保存各模型的独立预测集（Grid_Utility 格式）──
     print(f"\n  保存各模型独立预测集（Grid_Utility 格式）...")
-    for model_name in ['CatBoost', 'CB_Hurdle', 'LightGBM', 'RandomForest']:
+    # 主模型 + 消融变体
+    all_model_names = ['CatBoost', 'CB_Hurdle', 'LightGBM', 'RandomForest',
+                       'CB_Hurdle_no_τ', 'CB_Classifier_Only', 'CB_Regressor_Only']
+    for model_name in all_model_names:
         if model_name in all_model_preds and 'rent' in all_model_preds[model_name]:
             save_model_predictions(
                 model_name=model_name,
@@ -1179,7 +1303,8 @@ def main():
 
     # 统一列顺序：模型标识在前，超参数居中，性能指标在后
     priority_cols = ['model', 'model_type', 'target',
-                     'learning_rate', 'depth', 'l2_leaf_reg', 'od_wait',
+                     'learning_rate', 'depth', 'cls_depth', 'cls_l2_leaf_reg',
+                     'cls_scale_pos_weight', 'l2_leaf_reg', 'od_wait',
                      'num_leaves', 'min_child_samples', 'subsample',
                      'n_estimators', 'max_depth', 'min_samples_leaf',
                      'best_iteration',
@@ -1274,27 +1399,39 @@ def main():
 
             # ── 表4: 按历史零值率分桶的误差分析 ──
             # 使用 rent_mean_7d 作为零值率的代理：越低 → 零值率越高
+            # P0.2 fix: 使用 pd.qcut 替代 np.digitize+np.percentile
+            #   原因：当 >20% 样本的 rent_mean_7d = 0 时，P20 = P0 = 0，
+            #   np.digitize 导致 Q1 桶为空。pd.qcut 的 duplicates='drop'
+            #   自动合并重复边界，保证每个桶都有数据。
             if 'rent_mean_7d' in df_test.columns:
                 print(f"\n  🔭 按历史零值率分桶误差 (rent_mean_7d越低→零值率越高, CB_Hurdle优势应在此区间递增)")
                 zero_proxy = df_test['rent_mean_7d'].values
                 y_test_report = df_test[target].astype(float).values
-                # 分5个桶
-                bucket_edges = np.percentile(zero_proxy[zero_proxy >= 0], [0, 20, 40, 60, 80, 100])
-                bucket_labels = [f'Q{i+1}(极低需求)' if i == 0 else
-                                 f'Q{i+1}(低需求)' if i == 1 else
-                                 f'Q{i+1}(中需求)' if i == 2 else
-                                 f'Q{i+1}(较高需求)' if i == 3 else
-                                 f'Q{i+1}(高需求)' for i in range(5)]
-                bucket_idx = np.digitize(zero_proxy, bucket_edges[1:], right=False)
+                # P0.2: 使用 pd.qcut 动态处理重复分位数边界
+                try:
+                    bucket_idx = pd.qcut(zero_proxy, q=5, labels=False, duplicates='drop')
+                except Exception:
+                    bucket_idx = pd.cut(zero_proxy, bins=5, labels=False)
+                n_buckets = bucket_idx.max() + 1
+                # 动态标签
+                if n_buckets == 5:
+                    bucket_labels = ['Q1(极低需求)', 'Q2(低需求)', 'Q3(中需求)', 'Q4(较高需求)', 'Q5(高需求)']
+                elif n_buckets == 4:
+                    bucket_labels = ['Q1(极低需求)', 'Q2(低需求)', 'Q3(中需求)', 'Q4(高需求)']
+                elif n_buckets == 3:
+                    bucket_labels = ['Q1(低需求)', 'Q2(中需求)', 'Q3(高需求)']
+                else:
+                    bucket_labels = [f'Bucket{i+1}' for i in range(n_buckets)]
                 # 计算每桶各模型的 rmse 和零值率
                 print(f"  {'Bucket':<20s} {'真零率':>8s} "
                       f"{'CB_H_RMSE':>10s} {'CB_RMSE':>10s} {'RF_RMSE':>10s} "
                       f"{'Hurdle优势(vsCB)':>16s}")
                 print(f"  {'─' * 20} {'─' * 8} {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 16}")
-                for b_idx, b_label in enumerate(bucket_labels):
+                for b_idx in range(n_buckets):
                     mask_b = bucket_idx == b_idx
                     if mask_b.sum() < 100:
                         continue
+                    b_label = bucket_labels[b_idx]
                     y_b = y_test_report[mask_b]
                     zero_rate_b = (y_b <= 1e-6).mean()
                     rmse_cb_h = np.sqrt(mean_squared_error(
@@ -1358,6 +1495,58 @@ def main():
                     print(f"    ✅ 预测零值比例与真实零值比例仅差 {gap:.2%}，分布匹配优秀")
             else:
                 print(f"    ⚠️  零值召回率偏低 ({cb_recall:.2%})，考虑检查分类器特征或阈值")
+
+        # ── P0.1 消融实验汇总：量化 Hurdle 各组件的边际贡献 ──
+        ablation_models = ['CB_Hurdle', 'CB_Hurdle_no_τ', 'CB_Classifier_Only', 'CB_Regressor_Only']
+        ablation_sub = zi_df[zi_df['model'].isin(ablation_models)]
+        if not ablation_sub.empty:
+            print(f"\n{'═' * 80}")
+            print(f"  🔬 P0.1 消融实验: Hurdle 各组件边际贡献")
+            print(f"{'═' * 80}")
+            for target in TARGETS:
+                abl = ablation_sub[ablation_sub['target'] == target]
+                if abl.empty:
+                    continue
+                print(f"\n  ◆ 目标: {target}")
+                print(f"  {'变体':<22s} {'Poisson':>8s} {'RMSE':>8s} {'MAE':>8s} "
+                      f"{'Zero F1':>8s} {'WVR':>8s} {'TDB':>8s}")
+                print(f"  {'─' * 22} {'─' * 8} {'─' * 8} {'─' * 8} {'─' * 8} {'─' * 8} {'─' * 8}")
+
+                # 按模型名排序展示
+                variant_order = ['CB_Hurdle', 'CB_Hurdle_no_τ', 'CB_Classifier_Only', 'CB_Regressor_Only']
+                for v_name in variant_order:
+                    v = abl[abl['model'] == v_name]
+                    if v.empty:
+                        continue
+                    v = v.iloc[0]
+                    print(f"  {v['model']:<22s} "
+                          f"{v.get('test_Poisson', np.nan):>8.4f} "
+                          f"{v.get('test_RMSE', np.nan):>8.4f} "
+                          f"{v.get('test_MAE', np.nan):>8.4f} "
+                          f"{v.get('zi_zero_f1', np.nan):>8.4f} "
+                          f"{v.get('di_wasted_visit_rate', np.nan):>7.2%} "
+                          f"{v.get('di_total_demand_bias', np.nan):>7.1%}")
+
+                # 量化边际贡献
+                print(f"\n  📊 边际贡献分析 (以 CB_Hurdle 完整版为基线):")
+                full = abl[abl['model'] == 'CB_Hurdle']
+                no_tau = abl[abl['model'] == 'CB_Hurdle_no_τ']
+                cls_only = abl[abl['model'] == 'CB_Classifier_Only']
+                reg_only = abl[abl['model'] == 'CB_Regressor_Only']
+
+                if not full.empty and not no_tau.empty:
+                    f1_diff = full.iloc[0]['zi_zero_f1'] - no_tau.iloc[0]['zi_zero_f1']
+                    wvr_diff = full.iloc[0]['di_wasted_visit_rate'] - no_tau.iloc[0]['di_wasted_visit_rate']
+                    print(f"    三段式阈值优化:   ΔZero F1 = {f1_diff:+.4f}  |  ΔWVR = {wvr_diff:+.2%}")
+                if not full.empty and not cls_only.empty:
+                    f1_diff = full.iloc[0]['zi_zero_f1'] - cls_only.iloc[0]['zi_zero_f1']
+                    mae_diff = full.iloc[0]['test_MAE'] - cls_only.iloc[0]['test_MAE']
+                    print(f"    回归器 (vs只用分类器): ΔZero F1 = {f1_diff:+.4f}  |  ΔMAE = {mae_diff:+.4f}")
+                if not full.empty and not reg_only.empty:
+                    f1_full = full.iloc[0]['zi_zero_f1']
+                    f1_reg = reg_only.iloc[0]['zi_zero_f1']
+                    print(f"    分类器 (vs只用回归器): Zero F1: {f1_full:.4f} vs {f1_reg:.4f} "
+                          f"(分类器使模型获得了零值识别能力)")
 
     print("\n" + "=" * 60)
     print("完成。")
