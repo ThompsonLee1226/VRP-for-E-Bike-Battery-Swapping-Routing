@@ -37,8 +37,10 @@ import time
 import warnings
 from typing import Dict, List, Optional, Tuple
 
+import math
 import numpy as np
 import pandas as pd
+from scipy import stats as scipy_stats
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_poisson_deviance, mean_squared_error, mean_absolute_error, log_loss
 
@@ -60,6 +62,18 @@ FEATURES = [
     'lag_rent_is_zero', 'lag_return_is_zero',
     'rent_mean_7d_low', 'return_mean_7d_low',
     'is_night', 'lag_both_zero', 'low_demand_zone',
+    # 时间循环编码：帮助分类器捕捉"零点附近→凌晨→黎明"的平滑零需求模式
+    'hour_sin', 'hour_cos', 'day_of_week_sin', 'day_of_week_cos',
+]
+
+# ── Hurdle 分类器 / 回归器差异化特征集 ──
+# 分类器使用全部特征（包括零值检测专属特征），
+# 回归器额外使用量级交互特征（帮助预测正样本的需求大小）
+CLASSIFIER_FEATURES = FEATURES  # 分类器用全部特征
+REGRESSOR_FEATURES = FEATURES + [
+    'temp_squared',                  # 温度非线性效应
+    'rent_return_lag_interaction',   # lag 租还量级交互
+    'bike_count_interaction',        # 车辆状态交互
 ]
 
 TARGETS = ['rent', 'return']
@@ -133,6 +147,41 @@ def add_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
         df['low_demand_zone'] = ((df['rent_mean_7d'] < 0.3) & (df['return_mean_7d'] < 0.3)).astype(int)
     else:
         df['low_demand_zone'] = 0
+
+    # ── 时间循环编码：帮助树模型捕捉"23点→0点→1点"的连续零需求模式 ──
+    if 'hour' in df.columns:
+        df['hour_sin'] = np.sin(2 * math.pi * df['hour'] / 24)
+        df['hour_cos'] = np.cos(2 * math.pi * df['hour'] / 24)
+    else:
+        df['hour_sin'] = 0.0
+        df['hour_cos'] = 0.0
+
+    if 'day_of_week' in df.columns:
+        df['day_of_week_sin'] = np.sin(2 * math.pi * df['day_of_week'] / 7)
+        df['day_of_week_cos'] = np.cos(2 * math.pi * df['day_of_week'] / 7)
+    else:
+        df['day_of_week_sin'] = 0.0
+        df['day_of_week_cos'] = 0.0
+
+    # ── 回归器专用交互/多项式特征 ──
+    if 'temperature' in df.columns:
+        df['temp_squared'] = df['temperature'] ** 2
+    else:
+        df['temp_squared'] = 0.0
+
+    if 'lag_nb_rent' in df.columns and 'lag_nb_return' in df.columns:
+        df['rent_return_lag_interaction'] = df['lag_nb_rent'] * df['lag_nb_return']
+    else:
+        df['rent_return_lag_interaction'] = 0.0
+
+    if ('low_power_bike_count' in df.columns and 'normal_power_bike_count' in df.columns
+            and 'soon_low_power_bike_count' in df.columns):
+        df['bike_count_interaction'] = (
+            df['low_power_bike_count'] * df['normal_power_bike_count']
+            + df['soon_low_power_bike_count'] * df['normal_power_bike_count']
+        )
+    else:
+        df['bike_count_interaction'] = 0.0
 
     return df
 
@@ -243,6 +292,80 @@ def compute_zero_inflated_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dic
         'mae_on_zero': round(_safe_mae(y_true[mask_true_zero], y_pred[mask_true_zero]), 4),
         'mae_on_positive': round(_safe_mae(y_true[mask_true_pos], y_pred[mask_true_pos]), 4),
     }
+
+
+def compute_decision_impact_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    model_name: str,
+    y_pred_baseline: np.ndarray = None,
+    baseline_name: str = None,
+) -> Dict:
+    """计算对 VRP 路径优化有直接影响的决策指标。
+
+    指标说明：
+      - wasted_visit_rate : 假阳性率 = 预测有需求实为0 / 总样本
+        → VRP 中每次假阳性意味着车辆浪费一次访问
+      - missed_demand_rate : 假阴性率 = 预测0实有需求 / 总样本
+        → VRP 中每次假阴性意味着漏服务，可能需要额外调度
+      - total_demand_bias : 需求总量偏差 = (∑pred - ∑true) / ∑true
+        → 反映模型是否系统性高估或低估总需求
+      - mapz : Mean Absolute Prediction on Zeros = mean(|pred| | true==0)
+        → 在零需求样本上的平均"浪费预测"量级
+      - mcnemar_stat / mcnemar_pvalue : McNemar 检验
+        → 比较两个模型在零/非零分类上的差异是否统计显著
+    """
+    eps = 1e-6
+    y_pred = np.clip(y_pred, 0, None)
+
+    mask_true_zero = y_true <= eps
+    mask_pred_zero = y_pred <= eps
+    mask_true_pos = y_true > eps
+
+    n_total = len(y_true)
+    n_pred_pos_when_true_zero = ((~mask_pred_zero) & mask_true_zero).sum()
+    n_pred_zero_when_true_pos = (mask_pred_zero & mask_true_pos).sum()
+    n_pred_zero_when_true_zero = (mask_pred_zero & mask_true_zero).sum()
+
+    # 浪费访问率：把零需求判为有需求
+    wasted_visit_rate = n_pred_pos_when_true_zero / n_total
+
+    # 漏服务率：把有需求判为零
+    missed_demand_rate = n_pred_zero_when_true_pos / n_total
+
+    # 需求总量偏差
+    total_pred = y_pred.sum()
+    total_true = y_true.sum()
+    total_demand_bias = (total_pred - total_true) / total_true if total_true > 0 else np.nan
+
+    # 零需求样本上的平均预测值
+    mapz = float(np.mean(y_pred[mask_true_zero])) if mask_true_zero.sum() > 0 else np.nan
+
+    result = {
+        'wasted_visit_rate': round(wasted_visit_rate, 4),
+        'missed_demand_rate': round(missed_demand_rate, 4),
+        'total_demand_bias': round(total_demand_bias, 4) if not np.isnan(total_demand_bias) else np.nan,
+        'mapz': round(mapz, 4) if not np.isnan(mapz) else np.nan,
+    }
+
+    # McNemar 检验（仅当有 baseline 预测时计算）
+    if y_pred_baseline is not None:
+        mask_baseline_zero = y_pred_baseline <= eps
+        # 2×2 列联表: [CB_Hurdle正确, baseline错误; CB_Hurdle错误, baseline正确]
+        b = ((mask_pred_zero) & (~mask_baseline_zero) & mask_true_zero).sum()  # CB对, baseline错
+        c = ((~mask_pred_zero) & (mask_baseline_zero) & mask_true_zero).sum()  # CB错, baseline对
+        if b + c > 0:
+            mcnemar_stat = (abs(b - c) - 1) ** 2 / (b + c)  # 带连续性校正
+            mcnemar_pvalue = 1.0 - scipy_stats.chi2.cdf(mcnemar_stat, 1)
+        else:
+            mcnemar_stat = np.nan
+            mcnemar_pvalue = np.nan
+        result['mcnemar_stat'] = round(mcnemar_stat, 4) if not np.isnan(mcnemar_stat) else np.nan
+        result['mcnemar_pvalue'] = round(mcnemar_pvalue, 6) if not np.isnan(mcnemar_pvalue) else np.nan
+        result['mcnemar_b'] = int(b)
+        result['mcnemar_c'] = int(c)
+
+    return result
 
 
 def save_model_predictions(
@@ -531,22 +654,24 @@ def train_cb_hurdle(
     soft_pred = np.clip(prob_valid * val_valid, 0, None)
     soft_metrics = compute_metrics(y_valid, soft_pred)
 
-    # --- Stage 4: 分时段零决策阈值优化 (constrained, per-segment) ---
-    # 核心改进 v3：
-    #   不同时段的零值比例差异巨大（夜间 ~80% vs 高峰 ~20%）。
-    #   单一全局 τ 必须对高峰时段保守（假阴性代价高），导致夜间零召回不足。
-    #   新策略：按 is_rush_hour 将验证集分为 peak / off_peak 两段，
-    #   每段独立做 Poisson-约束的 F1 最大化。
+    # --- Stage 4: 三段式零决策阈值优化 (constrained, per-segment) ---
+    # 核心改进 v4：
+    #   不同时段的零值比例和误判代价差异巨大：
+    #     - peak (7-9,17-19): 零值 ~20%, 假阴性代价高 (漏服务)
+    #     - shoulder (6,10-16,20-22): 零值 ~50%, 代价居中
+    #     - night (23-5): 零值 ~80%, 假阳性代价高 (浪费访问)
+    #   三段独立 Poisson-约束的 F1 最大化，夜间可使用更激进的 τ。
     eps = 1e-6
     n_true_zero = (y_valid <= eps).sum()
     true_zero_ratio = n_true_zero / len(y_valid)
 
-    # ── 定义时段划分 ──
+    # ── 三段式时段划分 ──
     hour_valid = X_valid['hour'].values
     mask_peak = np.isin(hour_valid, [7, 8, 9, 17, 18, 19])
-    mask_off_peak = ~mask_peak
+    mask_night = np.isin(hour_valid, [0, 1, 2, 3, 4, 5])
+    mask_shoulder = ~(mask_peak | mask_night)  # 6, 10-16, 20-22
 
-    segment_masks = {'peak': mask_peak, 'off_peak': mask_off_peak}
+    segment_masks = {'peak': mask_peak, 'shoulder': mask_shoulder, 'night': mask_night}
 
     # ── 全局网格搜索（保留用于对比输出）──
     grid_tau = np.arange(0.01, 0.91, 0.02)
@@ -580,8 +705,10 @@ def train_cb_hurdle(
     best_poisson = float(grid_poisson[i_poisson_best])
     best_f1 = float(grid_f1[i_f1_best])
 
-    # ── 分时段 Poisson-约束的 F1 优化 ──
-    POISSON_BUDGET_PCT = 0.15  # 允许 Poisson 最多退化 15%
+    # ── 三段式 Poisson-约束的 F1 优化 ──
+    # 夜间允许更激进的 Poisson 退化（因为夜间误判零的代价更低）
+    SEGMENT_BUDGETS = {'peak': 0.10, 'shoulder': 0.15, 'night': 0.25}
+    POISSON_BUDGET_PCT = 0.20  # 默认预算（用于 strategy 标签）
     segment_thresholds: Dict[str, float] = {}
     segment_results: Dict[str, Dict] = {}
 
@@ -622,13 +749,14 @@ def train_cb_hurdle(
         # 该段的 soft-product Poisson 基线
         soft_poisson_seg = mean_poisson_deviance(
             y_seg, np.clip(soft_seg, eps, None))
-        poisson_ceiling_seg = soft_poisson_seg * (1.0 + POISSON_BUDGET_PCT)
+        seg_budget = SEGMENT_BUDGETS.get(seg_name, POISSON_BUDGET_PCT)
+        poisson_ceiling_seg = soft_poisson_seg * (1.0 + seg_budget)
 
         feasible_seg = seg_poisson <= poisson_ceiling_seg
         if feasible_seg.any():
             feasible_f1 = np.where(feasible_seg, seg_f1, -1.0)
             i_best_seg = int(np.argmax(feasible_f1))
-            seg_strategy = f'constrained (Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
+            seg_strategy = f'constrained (Poisson↑≤{seg_budget:.0%})'
         else:
             poisson_increase_seg = seg_poisson - soft_poisson_seg
             i_best_seg = int(np.argmin(poisson_increase_seg))
@@ -670,9 +798,10 @@ def train_cb_hurdle(
                      (final_zero_recall + final_zero_precision)
                      if (final_zero_recall + final_zero_precision) > 0 else 0.0)
 
-    # 为兼容性保留 use_threshold (取 off_peak 的 τ，因为它是主导零检测的时段)
-    use_threshold = segment_thresholds.get('off_peak', segment_thresholds.get('peak', 0.0))
-    threshold_strategy = f'per-segment constrained (Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
+    # 取 shoulder 的 τ 作为默认（占样本量最大的中段）
+    use_threshold = segment_thresholds.get('shoulder',
+                   segment_thresholds.get('peak', 0.0))
+    threshold_strategy = f'3-segment (peak/shoulder/night, Poisson↑≤{POISSON_BUDGET_PCT:.0%})'
 
     info = {
         'learning_rate': 0.02,
@@ -683,7 +812,7 @@ def train_cb_hurdle(
         'training_seconds': round(elapsed, 1),
         # 原 soft-product 指标（τ=0，Hurdle 的"纯 Poisson"性能）
         **{f'valid_{k.lower()}_soft': v for k, v in soft_metrics.items()},
-        # 最终指标（应用分时段约束优化阈值后）
+        # 最终指标（应用三段式约束优化阈值后）
         **{f'valid_{k.lower()}': v for k, v in final_metrics.items()},
         # 阈值优化结果（全局参考值）
         'hurdle_threshold_poisson': best_tau_poisson,
@@ -698,13 +827,17 @@ def train_cb_hurdle(
         'valid_zero_f1_f1': round(best_f1, 4),
         'valid_zero_f1_used': round(float(final_zero_f1), 4),
         'valid_classifier_logloss': round(log_loss(y_valid_bin, prob_valid), 4),
-        # 分时段详细信息
+        # 三段式分时段详细信息
         'segment_threshold_peak': round(segment_thresholds.get('peak', np.nan), 4),
-        'segment_threshold_off_peak': round(segment_thresholds.get('off_peak', np.nan), 4),
+        'segment_threshold_shoulder': round(segment_thresholds.get('shoulder', np.nan), 4),
+        'segment_threshold_night': round(segment_thresholds.get('night', np.nan), 4),
         'segment_f1_peak': round(segment_results.get('peak', {}).get('f1', np.nan), 4),
-        'segment_f1_off_peak': round(segment_results.get('off_peak', {}).get('f1', np.nan), 4),
+        'segment_f1_shoulder': round(segment_results.get('shoulder', {}).get('f1', np.nan), 4),
+        'segment_f1_night': round(segment_results.get('night', {}).get('f1', np.nan), 4),
+        'segment_zero_recall_night': round(segment_results.get('night', {}).get('recall', np.nan), 4),
         'segment_n_peak': segment_results.get('peak', {}).get('n_samples', 0),
-        'segment_n_off_peak': segment_results.get('off_peak', {}).get('n_samples', 0),
+        'segment_n_shoulder': segment_results.get('shoulder', {}).get('n_samples', 0),
+        'segment_n_night': segment_results.get('night', {}).get('n_samples', 0),
     }
 
     return {
@@ -798,13 +931,15 @@ def main():
               f"Poisson(hard)={info['valid_poisson']:.4f}, "
               f"MAE={info['valid_mae']:.4f}, best_iter={info['best_iteration']}, "
               f"τ_peak={info.get('segment_threshold_peak', 'N/A')}, "
-              f"τ_off={info.get('segment_threshold_off_peak', 'N/A')}")
+              f"τ_shoulder={info.get('segment_threshold_shoulder', 'N/A')}, "
+              f"τ_night={info.get('segment_threshold_night', 'N/A')}")
         print(f"    阈值优化 [{info.get('hurdle_threshold_strategy', 'N/A')}]: "
               f"τ_Poisson={info['hurdle_threshold_poisson']:.2f}, "
               f"τ_F1={info['hurdle_threshold_f1']:.2f}")
         print(f"    时段结果: "
               f"peak(F1={info.get('segment_f1_peak', 'N/A')}, n={info.get('segment_n_peak', 'N/A')})  "
-              f"off_peak(F1={info.get('segment_f1_off_peak', 'N/A')}, n={info.get('segment_n_off_peak', 'N/A')})")
+              f"shoulder(F1={info.get('segment_f1_shoulder', 'N/A')}, n={info.get('segment_n_shoulder', 'N/A')})  "
+              f"night(F1={info.get('segment_f1_night', 'N/A')}, 零召回={info.get('segment_zero_recall_night', 'N/A')}, n={info.get('segment_n_night', 'N/A')})")
         print(f"    全体验证: F1={info.get('valid_zero_f1_used', 'N/A')}, "
               f"零召回={info.get('valid_zero_f1_used', 'N/A')}, "
               f"真零比={info['valid_true_zero_ratio']:.2%}, "
@@ -900,13 +1035,17 @@ def main():
             val_test = np.clip(cb_hurdle['regressor'].predict(df_test[FEATURES]), 0, None)
             soft_pred = np.clip(prob_test * val_test, 0, None)
 
-            # 分时段阈值：高峰与平峰使用各自优化的 τ
+            # 三段式分时段阈值：peak / shoulder / night 使用各自优化的 τ
             segment_thresholds = cb_hurdle.get('segment_thresholds', {})
             if segment_thresholds:
                 hour_test = df_test['hour'].values
                 mask_peak_test = np.isin(hour_test, [7, 8, 9, 17, 18, 19])
+                mask_night_test = np.isin(hour_test, [0, 1, 2, 3, 4, 5])
+                mask_shoulder_test = ~(mask_peak_test | mask_night_test)
                 hurdle_pred = np.zeros_like(soft_pred)
-                for seg_name, seg_mask in [('peak', mask_peak_test), ('off_peak', ~mask_peak_test)]:
+                for seg_name, seg_mask in [('peak', mask_peak_test),
+                                            ('shoulder', mask_shoulder_test),
+                                            ('night', mask_night_test)]:
                     tau_seg = segment_thresholds.get(seg_name, cb_hurdle.get('threshold', 0.0))
                     hurdle_pred[seg_mask] = np.where(
                         prob_test[seg_mask] < tau_seg, 0.0, soft_pred[seg_mask])
@@ -977,6 +1116,31 @@ def main():
                     **{f'zi_{k}': v for k, v in zi.items()},
                 })
 
+        # ── 决策影响指标 + McNemar 检验（仅 CB_Hurdle vs 最佳 baseline）──
+        cb_hurdle_col = f'{target}_cb_hurdle'
+        cb_baseline_col = f'{target}_cb'
+        if cb_hurdle_col in pred_df.columns and cb_baseline_col in pred_df.columns:
+            y_hurdle = pred_df[cb_hurdle_col].values
+            y_baseline = pred_df[cb_baseline_col].values
+            di = compute_decision_impact_metrics(y_test, y_hurdle, 'CB_Hurdle',
+                                                  y_pred_baseline=y_baseline,
+                                                  baseline_name='CatBoost')
+            print(f"\n  ┌─ 🔧 决策影响指标 (CB_Hurdle)")
+            print(f"  │  Wasted Visit Rate (假阳性→浪费访问):    {di['wasted_visit_rate']:.2%}")
+            print(f"  │  Missed Demand Rate (假阴性→漏服务):     {di['missed_demand_rate']:.2%}")
+            print(f"  │  Total Demand Bias (需求总量偏差):        {di['total_demand_bias']:+.2%}")
+            print(f"  │  MAPZ (零样本平均浪费预测):               {di['mapz']:.4f}")
+            if 'mcnemar_pvalue' in di and not np.isnan(di['mcnemar_pvalue']):
+                print(f"  │  McNemar vs CatBoost: stat={di['mcnemar_stat']:.2f}, "
+                      f"p={di['mcnemar_pvalue']:.6f}  "
+                      f"({'***显著' if di['mcnemar_pvalue'] < 0.001 else '**较显著' if di['mcnemar_pvalue'] < 0.01 else '*弱显著' if di['mcnemar_pvalue'] < 0.05 else '不显著'})")
+                print(f"  └─ (CB对Baseline错: {di.get('mcnemar_b','?')} vs "
+                      f"Baseline对CB错: {di.get('mcnemar_c','?')})")
+            # 附加到零膨胀指标
+            for row in zi_metrics_rows:
+                if row['model'] == 'CB Hurdle' and row['target'] == target:
+                    row.update({f'di_{k}': v for k, v in di.items()})
+
     # ── 保存合并预测文件 ──
     pred_path = os.path.join(args.output_dir, 'baseline_test_predictions.csv')
     pred_df.to_csv(pred_path, index=False)
@@ -1002,6 +1166,14 @@ def main():
     zi_df.to_csv(zi_path, index=False)
     print(f"\n  零膨胀专项指标已保存至: {zi_path}")
 
+    # ── 保存决策影响指标文件 ──
+    di_path = os.path.join(args.output_dir, 'baseline_decision_impact_metrics.csv')
+    di_cols = [c for c in zi_df.columns if c.startswith('di_')]
+    if di_cols:
+        di_df = zi_df[['model', 'target'] + di_cols].dropna(subset=di_cols, how='all')
+        di_df.to_csv(di_path, index=False)
+        print(f"  决策影响指标已保存至: {di_path}")
+
     # 构建对比文件
     comp_df = pd.DataFrame(comparison_rows)
 
@@ -1019,6 +1191,11 @@ def main():
                      'valid_pred_zero_ratio_f1', 'valid_pred_zero_ratio_used',
                      'valid_zero_f1_poisson', 'valid_zero_f1_f1', 'valid_zero_f1_used',
                      'valid_classifier_logloss',
+                     # 三段式分时段信息
+                     'segment_threshold_peak', 'segment_threshold_shoulder', 'segment_threshold_night',
+                     'segment_f1_peak', 'segment_f1_shoulder', 'segment_f1_night',
+                     'segment_zero_recall_night',
+                     'segment_n_peak', 'segment_n_shoulder', 'segment_n_night',
                      'training_seconds', 'notes']
     existing = [c for c in priority_cols if c in comp_df.columns]
     remaining = [c for c in comp_df.columns if c not in existing]
@@ -1095,7 +1272,46 @@ def main():
                 flag_str = "  ← " + ", ".join(flags) if flags else ""
                 print(f"  {r['model']:<18s} {rmse0:>10.4f} {rmse_pos:>12.4f} {mae0:>10.4f} {mae_pos:>12.4f}{flag_str}")
 
-        # ── 综合结论 ──
+            # ── 表4: 按历史零值率分桶的误差分析 ──
+            # 使用 rent_mean_7d 作为零值率的代理：越低 → 零值率越高
+            if 'rent_mean_7d' in df_test.columns:
+                print(f"\n  🔭 按历史零值率分桶误差 (rent_mean_7d越低→零值率越高, CB_Hurdle优势应在此区间递增)")
+                zero_proxy = df_test['rent_mean_7d'].values
+                y_test_report = df_test[target].astype(float).values
+                # 分5个桶
+                bucket_edges = np.percentile(zero_proxy[zero_proxy >= 0], [0, 20, 40, 60, 80, 100])
+                bucket_labels = [f'Q{i+1}(极低需求)' if i == 0 else
+                                 f'Q{i+1}(低需求)' if i == 1 else
+                                 f'Q{i+1}(中需求)' if i == 2 else
+                                 f'Q{i+1}(较高需求)' if i == 3 else
+                                 f'Q{i+1}(高需求)' for i in range(5)]
+                bucket_idx = np.digitize(zero_proxy, bucket_edges[1:], right=False)
+                # 计算每桶各模型的 rmse 和零值率
+                print(f"  {'Bucket':<20s} {'真零率':>8s} "
+                      f"{'CB_H_RMSE':>10s} {'CB_RMSE':>10s} {'RF_RMSE':>10s} "
+                      f"{'Hurdle优势(vsCB)':>16s}")
+                print(f"  {'─' * 20} {'─' * 8} {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 16}")
+                for b_idx, b_label in enumerate(bucket_labels):
+                    mask_b = bucket_idx == b_idx
+                    if mask_b.sum() < 100:
+                        continue
+                    y_b = y_test_report[mask_b]
+                    zero_rate_b = (y_b <= 1e-6).mean()
+                    rmse_cb_h = np.sqrt(mean_squared_error(
+                        y_b, pred_df[f'{target}_cb_hurdle'].values[mask_b])) \
+                        if f'{target}_cb_hurdle' in pred_df.columns else np.nan
+                    rmse_cb = np.sqrt(mean_squared_error(
+                        y_b, pred_df[f'{target}_cb'].values[mask_b])) \
+                        if f'{target}_cb' in pred_df.columns else np.nan
+                    rmse_rf = np.sqrt(mean_squared_error(
+                        y_b, pred_df[f'{target}_rf'].values[mask_b])) \
+                        if f'{target}_rf' in pred_df.columns else np.nan
+                    advantage = f"{(rmse_cb - rmse_cb_h):+.4f}" if not np.isnan(rmse_cb_h) and not np.isnan(rmse_cb) else "N/A"
+                    print(f"  {b_label:<20s} {zero_rate_b:>7.1%} "
+                          f"{rmse_cb_h:>10.4f} {rmse_cb:>10.4f} {rmse_rf:>10.4f} "
+                          f"{advantage:>16s}")
+
+            # ── 综合结论 ──
         print(f"\n{'═' * 80}")
         print(f"  📋 综合结论")
         print(f"{'═' * 80}")
@@ -1120,6 +1336,18 @@ def main():
                   f"(提升 {h['zi_zero_f1'] - best_other_f1:+.4f})")
             print(f"    RMSE on Zero:    {h['zi_rmse_on_zero']:.4f}  vs  {best_other_rmse0:.4f}  "
                   f"(降低 {h['zi_rmse_on_zero'] - best_other_rmse0:+.4f})")
+
+            # 决策影响指标
+            di_wvr = h.get('di_wasted_visit_rate', np.nan)
+            di_tdb = h.get('di_total_demand_bias', np.nan)
+            di_mcnemar_p = h.get('di_mcnemar_pvalue', np.nan)
+            if not np.isnan(di_wvr):
+                print(f"    🔧 Wasted Visit Rate (假阳性→浪费访问):  {di_wvr:.2%}")
+            if not np.isnan(di_tdb):
+                print(f"    🔧 Total Demand Bias (需求总量偏差):     {di_tdb:+.2%}")
+            if not np.isnan(di_mcnemar_p):
+                significance = '***' if di_mcnemar_p < 0.001 else '**' if di_mcnemar_p < 0.01 else '*' if di_mcnemar_p < 0.05 else 'n.s.'
+                print(f"    🔧 McNemar检验 vs CatBoost: p={di_mcnemar_p:.6f} ({significance})")
 
             # 关键诊断
             cb_recall = h['zi_zero_recall']
