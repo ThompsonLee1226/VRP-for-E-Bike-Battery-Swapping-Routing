@@ -7,17 +7,20 @@ import pandas as pd
 # =============================================================================
 # 日期时间配置 —— 在代码最前面预先声明
 # =============================================================================
-# 默认目标日期时间 (从 prediction_CB_Hurdle.csv 的有效范围中选取)
-# 数据有效范围: 2025/10/24 12:00 ~ 2025/11/10 23:00
-DEFAULT_TARGET_DATETIME = "2025/10/24 12:00"
-DATETIME_RANGE_START = "2025/10/24 12:00"
+# ★ 选择目标日期时间: 格式 "YYYY/MM/DD HH:00"
+#    数据有效范围: 2025/10/23 12:00 ~ 2025/11/10 23:00 (445个可用小时)
+#    修改此处即可切换优化目标小时
+DEFAULT_TARGET_DATETIME = "2025/10/23 12:00"
+DATETIME_RANGE_START = "2025/10/23 12:00"
 DATETIME_RANGE_END   = "2025/11/10 23:00"
 
-# 默认预测数据文件路径 (相对于当前脚本所在目录向上查找)
+# ★ 默认预测数据: CB_Hurdle 最优训练结果
+#    修改 TRAINING_RESULT_DIR 即可切换训练结果来源
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_PREDICTION_FILE = os.path.normpath(os.path.join(
-    _SCRIPT_DIR, "..", "2_Training", "Baseline_Comparison_Results", "prediction_CB_Hurdle.csv"
+TRAINING_RESULT_DIR = os.path.normpath(os.path.join(
+    _SCRIPT_DIR, "..", "2_Training", "Training_Results", "20260727_115935"
 ))
+DEFAULT_PREDICTION_FILE = os.path.join(TRAINING_RESULT_DIR, "prediction_CB_Hurdle.csv")
 
 
 def list_available_hours(file_path=None, start=None, end=None):

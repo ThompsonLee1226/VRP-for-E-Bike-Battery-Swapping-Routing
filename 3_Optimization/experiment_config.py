@@ -24,8 +24,13 @@ import os
 # 路径配置
 # =============================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DATA_FILE = os.path.join(BASE_DIR, "Grid_Utility_Test.csv")
-DEFAULT_OUTPUT_DIR = os.path.join(BASE_DIR, "..", "..", "Optimization Result")
+
+# ★ 默认数据文件: 从 Pre_Process 导入 CB_Hurdle 最优训练结果
+#    若需切换数据源, 修改 Pre_Process.py 中的 TRAINING_RESULT_DIR
+from Pre_Process import DEFAULT_PREDICTION_FILE
+DEFAULT_DATA_FILE = DEFAULT_PREDICTION_FILE
+
+DEFAULT_OUTPUT_DIR = os.path.join(BASE_DIR, "Optimization_Result_Summary")
 DEFAULT_OUTPUT_DIR = os.path.normpath(DEFAULT_OUTPUT_DIR)
 
 # =============================================================================

@@ -44,7 +44,7 @@ OPTIM_DIR = os.path.join(PROJECT_ROOT, '3_Optimization')
 sys.path.insert(0, OPTIM_DIR)
 
 from main_STGraph import run_optimization_pipeline
-from Pre_Process import DEFAULT_TARGET_DATETIME
+from Pre_Process import DEFAULT_TARGET_DATETIME, DEFAULT_PREDICTION_FILE
 
 # ---------------------------------------------------------------------------
 # 可视化导入 (非交互后端, 适配服务器环境)
@@ -68,7 +68,9 @@ from tqdm import tqdm
 # =========================================================================
 # 全局路径与输出配置
 # =========================================================================
-DATA_FILE = os.path.join(OPTIM_DIR, 'Grid_Utility_Test.csv')
+# ★ 数据文件: 使用 CB_Hurdle 最优训练结果 (与 3_Optimization 共享)
+#    修改 3_Optimization/Pre_Process.py 中的 TRAINING_RESULT_DIR 即可切换
+DATA_FILE = DEFAULT_PREDICTION_FILE
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'Results')
 PLOT_DIR = os.path.join(SCRIPT_DIR, 'Plots')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -862,46 +864,45 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # 1. 车速敏感性扫描
     # ------------------------------------------------------------------
-    """print("\n" + "█" * 70)
+    print("\n" + "█" * 70)
     print("  [阶段 1/4] 车速 (vehicle_speed_kmh) 敏感性扫描")
     print("█" * 70)
     df_speed = sweep_vehicle_speed()
     all_results["vehicle_speed_kmh"] = df_speed
     if df_speed is not None and not df_speed.empty:
         plot_speed_sensitivity(df_speed)
-"""
     # ------------------------------------------------------------------
     # 2. 换电速率敏感性扫描
     # ------------------------------------------------------------------
-    """print("\n" + "█" * 70)
+    print("\n" + "█" * 70)
     print("  [阶段 2/4] 换电速率 (swap_rate) 敏感性扫描")
     print("█" * 70)
     df_swap = sweep_swap_time()
     all_results["swap_rate"] = df_swap
     if df_swap is not None and not df_swap.empty:
-        plot_swap_time_sensitivity(df_swap)"""
+        plot_swap_time_sensitivity(df_swap)
 
     # ------------------------------------------------------------------
     # 3. 车载容量敏感性扫描
     # ------------------------------------------------------------------
-    """print("\n" + "█" * 70)
+    print("\n" + "█" * 70)
     print("  [阶段 3/4] 车载容量 (C_max) 敏感性扫描")
     print("█" * 70)
     df_cmax = sweep_C_max()
     all_results["C_max"] = df_cmax
     if df_cmax is not None and not df_cmax.empty:
-        plot_C_max_sensitivity(df_cmax)"""
+        plot_C_max_sensitivity(df_cmax)
 
     # ------------------------------------------------------------------
     # 4. 时空离散段数敏感性扫描
     # ------------------------------------------------------------------
-    """print("\n" + "█" * 70)
+    print("\n" + "█" * 70)
     print("  [阶段 4/4] 时空离散段数 (P_intervals) 敏感性扫描")
     print("█" * 70)
     df_p = sweep_P_intervals()
     all_results["P_intervals"] = df_p
     if df_p is not None and not df_p.empty:
-        plot_P_intervals_sensitivity(df_p)"""
+        plot_P_intervals_sensitivity(df_p)
 
     # ------------------------------------------------------------------
     # 5. 交叉项: P_intervals × vehicle_speed 联合扫描
