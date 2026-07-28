@@ -62,10 +62,14 @@ def calculate_operational_utility(u_j, y_j, n_low, n_soon, n_normal,
     rho_j_pure = rho_j * sum_serviceable_theta
 
     # -------------------------------------------------------------------------
-    # 1. 基础常数与自然动态边界计算 (后续计算全部替换为纯净无low参数)
+    # 1. 基础常数与自然动态边界计算
     # -------------------------------------------------------------------------
     N_j0 = n_soon + n_normal
-    
+
+    # 若格点无任何可服务车辆，效用直接为 0
+    if N_j0 <= 1e-12:
+        return 0.0
+
     if lam_j > rho_j_pure:
         t_0 = N_j0 / (lam_j - rho_j_pure)
     else:

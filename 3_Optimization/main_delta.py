@@ -29,6 +29,7 @@ from experiment_utils import (
     export_experiment_result, compute_utility_split,
 )
 from experiment_config import get_experiment_config
+from route_visualizer import visualize_route
 
 # =========================================================================
 # 默认参数配置
@@ -389,6 +390,22 @@ def run_optimization_pipeline(
         "max_travel_time_h": max_travel_time,
         "geo_fencing_enabled": geo_fencing,
     }
+
+    # ── Route visualization ──────────────────────────────────────
+    if result["route"]:
+        try:
+            vis_path = visualize_route(
+                result, active_coords, snapshot_df, output_dir,
+                depot_coords=(depot_lat, depot_lon),
+                experiment_id=experiment_id, instance_name=instance_name,
+                vehicle_speed_kmh=vehicle_speed_kmh, swap_time_c=swap_time_c,
+                C_max=C_max,
+            )
+            if vis_path and verbose:
+                print(f"  [Route viz] {vis_path}")
+        except Exception as vis_err:
+            if verbose:
+                print(f"  [Viz warning] {vis_err}")
 
     return result
 

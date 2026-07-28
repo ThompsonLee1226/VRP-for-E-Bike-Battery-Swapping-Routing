@@ -17,7 +17,7 @@
   python batch_runner.py --instances small_01 small_02  # 指定实例列表
   python batch_runner.py --aligned                 # 使用对齐参数 (P=10, MIPGap=0.05)
   python batch_runner.py --random --seed 42       # 批量实验随机选取
-  python batch_runner.py --datetime "2025/11/01 08:00"  # 批量实验指定时间( 可选时间范围：2025/10/24 00:00 ~ 2025/11/10 23:00，共 432 个可用小时。)
+  python 3_Optimization\batch_runner.py --datetime "2025/11/01 08:00"  # 批量实验指定时间( 可选时间范围：2025/10/24 00:00 ~ 2025/11/10 23:00，共 432 个可用小时。)
   =============================================================================
 """
 

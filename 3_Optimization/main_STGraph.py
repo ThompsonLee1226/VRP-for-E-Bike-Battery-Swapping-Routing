@@ -4,7 +4,7 @@
 # 默认时间 (2025/10/24 12:00)
   python 3_Optimization/main_STGraph.py
   # 指定具体小时
-  python 3_Optimization/main_STGraph.py --datetime "2025/10/28 14:00"
+  python 3_Optimization/main_STGraph.py --datetime "2025/10/29 14:00"
 
   # 随机选取
   python 3_Optimization/main_STGraph.py --random
@@ -48,12 +48,13 @@ from experiment_utils import (
     export_experiment_result, compute_utility_split,
 )
 from experiment_config import get_experiment_config
+from route_visualizer import visualize_route
 
 # =========================================================================
 # 默认统一参数配置 (与原有 MCF 骨架体系保持高度严谨对齐)
 # =========================================================================
 DEFAULT_DATA_FILE = DEFAULT_PREDICTION_FILE  # 默认使用 CB_Hurdle 预测数据
-DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Optimization_Result_Summary")
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Optimization_Result_Summary", time.strftime("%Y%m%d_%H%M%S"))
 DEFAULT_SPEED_KMH = 30.0
 DEFAULT_C_MAX = 20
 DEFAULT_T_TOTAL = 1.0
@@ -327,6 +328,22 @@ def run_optimization_pipeline(
         "K_neighbors": K_neighbors if knn_enabled else 0,
     }
     result["num_st_arcs"] = len(model._st_arcs) if hasattr(model, '_st_arcs') else 0
+
+    # ── Route visualization ──────────────────────────────────────
+    if result["route"]:
+        try:
+            vis_path = visualize_route(
+                result, active_coords, snapshot_df, output_dir,
+                depot_coords=(depot_lat, depot_lon),
+                experiment_id=experiment_id, instance_name=instance_name,
+                vehicle_speed_kmh=vehicle_speed_kmh, swap_time_c=swap_time_c,
+                C_max=C_max,
+            )
+            if vis_path and verbose:
+                print(f"  [Route viz] {vis_path}")
+        except Exception as vis_err:
+            if verbose:
+                print(f"  [Viz warning] {vis_err}")
 
     return result
 

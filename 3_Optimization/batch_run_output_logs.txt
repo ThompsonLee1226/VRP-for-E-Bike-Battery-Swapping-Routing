@@ -1,0 +1,982 @@
+  Target Datetime: 2025/11/02 12:00
+======================================================================
+[M2b] 数据=D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\2_Training\Training_Results\20260727_115935\prediction_CB_Hurdle.csv | C=20 T=1.0 P=10 Y={1..10} Pruning=[Geo-Fence] | speed=30.0km/h
+  [Geo-Fencing ✓] 网格剪枝: 663→465 (剔除 198 个零收益网格)
+  [弧段统计] 可行弧段: 120536 / ~216690 (55.6%)
+[求解] 启动 Space-Time Graph 优化引擎 | KNN=K=∞ (消融模式)...
+Set parameter MIPGap to value 0.01
+Set parameter TimeLimit to value 1200
+Set parameter Method to value 2
+Set parameter Crossover to value 0
+Set parameter Heuristics to value 0.1
+Set parameter Cuts to value 1
+Set parameter Symmetry to value 0
+Set parameter NoRelHeurTime to value 15
+Set parameter Threads to value 8
+Set parameter PreDual to value 0
+Set parameter PrePasses to value 8
+Set parameter NodeMethod to value 1
+Set parameter ImproveStartTime to value 0
+Set parameter BarHomogeneous to value 1
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (win64 - Windows 11.0 (22000.2))
+
+CPU model: Intel(R) Core(TM) i5-10210U CPU @ 1.60GHz, instruction set [SSE2|AVX|AVX2]
+Thread count: 4 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 6980 rows, 10000842 columns and 69959727 nonzeros
+Model fingerprint: 0x5cf599cf
+Variable types: 466 continuous, 10000376 integer (9999910 binary)
+Coefficient statistics:
+  Matrix range     [1e-01, 1e+01]
+  Objective range  [3e-18, 9e-01]
+  Bounds range     [1e+00, 2e+01]
+  RHS range        [1e+00, 2e+01]
+Using branch priorities.
+
+Warning: Completing partial solution with 10000360 unfixed non-continuous variables out of 10000376
+Processing user MIP start: 0 nodes explored in subMIP, total elapsed time 19s
+Processing user MIP start: 0 nodes explored in subMIP, total elapsed time 22s
+Processing user MIP start: 0 nodes explored in subMIP, total elapsed time 25s
+User MIP start did not produce a new incumbent solution
+User MIP start violates constraint Link_Variable_U[8940e30b647ffff] by 0.100000000
+Processed MIP start in 33.09 seconds (6.16 work units)
+
+Found heuristic solution: objective -0.0000000
+Presolve removed 0 rows and 0 columns (presolve time = 5s) ...
+Presolve removed 465 rows and 1395 columns (presolve time = 10s) ...
+Presolve removed 467 rows and 1397 columns (presolve time = 16s) ...
+Presolve removed 1403 rows and 2413497 columns (presolve time = 21s) ...
+Presolve removed 2154 rows and 4224067 columns (presolve time = 26s) ...
+Presolve removed 2407 rows and 4684237 columns (presolve time = 30s) ...
+Presolve removed 2448 rows and 4735787 columns (presolve time = 35s) ...
+Presolve removed 2448 rows and 4735787 columns (presolve time = 42s) ...
+Presolve removed 2448 rows and 4735787 columns (presolve time = 45s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 50s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 55s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 60s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 65s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 71s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 75s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 80s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 85s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 90s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 95s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 100s) ...
+Presolve removed 2913 rows and 4735787 columns (presolve time = 105s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 110s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 115s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 120s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 125s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 130s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 135s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 140s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 145s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 150s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 155s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 160s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 165s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 170s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 175s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 180s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 185s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 190s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 195s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 200s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 205s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 210s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 215s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 220s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 225s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 230s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 235s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 240s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 245s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 250s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 255s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 260s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 265s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 270s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 275s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 280s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 285s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 290s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 295s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 300s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 305s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 310s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 315s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 320s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 325s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 330s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 335s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 340s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 345s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 350s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 355s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 360s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 365s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 370s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 375s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 380s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 385s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 390s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 395s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 400s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 405s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 410s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 415s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 420s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 425s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 430s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 435s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 440s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 445s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 450s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 455s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 460s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 465s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 470s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 475s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 480s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 485s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 490s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 495s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 500s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 505s) ...
+Presolve removed 3378 rows and 4735787 columns (presolve time = 512s) ...
+Presolve removed 3379 rows and 4735787 columns (presolve time = 516s) ...
+Presolve removed 3379 rows and 4735787 columns (presolve time = 520s) ...
+Presolve removed 3379 rows and 4735787 columns (presolve time = 525s) ...
+Presolve removed 3379 rows and 4735787 columns (presolve time = 574s) ...
+Presolve removed 3379 rows and 4735787 columns (presolve time = 577s) ...
+Presolve removed 3378 rows and 4735786 columns
+Presolve time: 579.86s
+Presolved: 3602 rows, 5265056 columns, 20486625 nonzeros
+Variable types: 0 continuous, 5265056 integer (5265056 binary)
+  [STGraph-Engine] obj=-0.0000  bnd=188818.2702  gap=18881827022420608.0%  nodes=0  t=655s
+Starting NoRel heuristic
+  [STGraph-Engine] obj=-0.0000  bnd=188818.2702  gap=18881827022420608.0%  nodes=0  t=702s
+  [STGraph-Engine] obj=-0.0000  bnd=20.9278  gap=2092776809621.2%  nodes=0  t=771s
+Elapsed time for NoRel heuristic: 69s (best bound 20.9278)
+Root relaxation presolved: 3602 rows, 5265056 columns, 20486625 nonzeros
+
+Root barrier log...
+
+Ordering time: 0.23s
+
+Barrier statistics:
+ AA' NZ     : 2.065e+06
+ Factor NZ  : 5.979e+06 (roughly 2.0 GB of memory)
+ Factor Ops : 1.324e+10 (less than 1 second per iteration)
+ Threads    : 8
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   6.42747360e+04  3.58908932e+05  1.16e+06 2.86e-01  1.34e-01   792s
+   1   1.09436453e+04  8.44204022e+03  1.93e+05 6.19e-16  1.21e-02   795s
+   2   2.22158629e+02  1.67652499e+02  3.61e+03 5.47e-16  2.02e-04   798s
+   3   6.28869269e+01  1.35451432e+02  8.34e+02 1.62e-13  1.10e-04   802s
+   4   3.86131516e+01  1.35563249e+02  4.60e+02 1.41e-04  9.33e-05   806s
+   5   3.16510747e+01  1.28133207e+02  3.58e+02 1.44e-11  1.22e-04   808s
+   6   2.45952260e+01  1.22145670e+02  2.61e+02 1.10e-04  1.20e-04   811s
+   7   1.88966555e+01  1.10087333e+02  1.88e+02 1.06e-04  1.15e-04   814s
+   8   6.89379046e+00  9.56682880e+01  5.52e+01 6.98e-05  4.18e-05   817s
+   9   8.02568513e-01  3.14880302e+01  3.34e+00 2.62e-05  5.03e-06   820s
+  10   3.27594608e-01  2.67663778e+01  2.50e-03 2.26e-05  2.65e-06   825s
+  11   3.04623186e-01  2.00732113e+01  5.17e-04 1.69e-05  1.90e-06   828s
+  12   3.15360934e-01  1.38390331e+01  1.23e-04 1.16e-05  1.29e-06   831s
+  13   3.58594687e-01  7.66108257e+00  1.10e-06 6.28e-06  6.94e-07   834s
+  14   4.05027632e-01  7.27873296e+00  6.45e-07 5.94e-06  6.53e-07   837s
+  15   4.77788193e-01  6.91713960e+00  3.73e-07 5.61e-06  6.12e-07   839s
+  16   6.38397390e-01  6.25063506e+00  1.91e-07 4.99e-06  5.33e-07   843s
+  17   1.09371435e+00  4.25006791e+00  6.70e-09 3.09e-06  3.00e-07   847s
+  18   1.16885743e+00  3.85562648e+00  5.40e-09 2.52e-06  2.55e-07   851s
+  19   1.25232201e+00  3.24111963e+00  3.99e-09 1.87e-06  1.89e-07   853s
+  20   1.33369594e+00  2.96383163e+00  2.81e-09 1.55e-06  1.55e-07   856s
+  21   1.36834849e+00  2.90318350e+00  2.46e-09 1.46e-06  1.46e-07   859s
+  22   1.50072344e+00  2.82722082e+00  1.24e-09 1.37e-06  1.26e-07   862s
+  23   1.58376786e+00  2.44120522e+00  8.35e-10 8.82e-07  8.15e-08   866s
+  24   1.59205350e+00  2.38132927e+00  8.07e-10 7.71e-07  7.50e-08   872s
+  25   1.65786277e+00  2.27216490e+00  4.84e-10 6.38e-07  5.84e-08   877s
+  26   1.71962413e+00  2.01001290e+00  2.67e-10 3.99e-07  2.76e-08   882s
+  27   1.76556014e+00  1.90490655e+00  3.86e-10 1.78e-07  1.32e-08   887s
+  28   1.78775046e+00  1.86664540e+00  2.70e-10 9.92e-08  7.50e-09   890s
+  29   1.80860705e+00  1.82381768e+00  4.83e-11 2.58e-08  1.45e-09   893s
+  30   1.81126701e+00  1.81275019e+00  5.22e-10 3.03e-09  1.41e-10   896s
+  31   1.81156858e+00  1.81162568e+00  9.63e-10 1.70e-09  5.43e-12   898s
+  32   1.81157574e+00  1.81157574e+00  1.95e-12 9.16e-10  3.57e-16   901s
+
+Barrier solved model in 32 iterations and 901.23 seconds (1521.03 work units)
+Optimal objective 1.81157574e+00
+
+
+Root crossover log...
+
+    3109 DPushes remaining with DInf 0.0000000e+00               902s
+       0 DPushes remaining with DInf 0.0000000e+00               904s
+
+       0 PPushes remaining with PInf 0.0000000e+00               904s
+
+  Push phase complete: Pinf 0.0000000e+00, Dinf 3.2605862e-14    904s
+
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+    3111    1.8115757e+00   0.000000e+00   0.000000e+00    905s
+    3111    1.8115757e+00   0.000000e+00   0.000000e+00    907s
+
+Root relaxation: objective 1.811576e+00, 3111 iterations, 135.90 seconds (65.15 work units)
+Total elapsed time = 930.23s (DegenMoves)
+  [STGraph-Engine] obj=-0.0000  bnd=1.8116  gap=181157573805.0%  nodes=0  t=948s
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    1.81158    0   33   -0.00000    1.81158      -     -  947s
+H    0     0                       1.5689560    1.81158  15.5%     - 1007s
+H    0     0                       1.7250751    1.81158  5.01%     - 1073s
+H    0     0                       1.7655295    1.81158  2.61%     - 1109s
+  [STGraph-Engine] obj=1.7655  bnd=1.8116  gap=2.6%  nodes=0  t=1153s
+     0     0    1.79314    0   15    1.76553    1.79314  1.56%     - 1155s
+
+Resetting heuristic parameters to focus on improving solution
+(using Heuristics=0.5 and RINS=10)...
+
+     1     2    1.79314    0   15    1.76553    1.79314  1.56%   0.0 1168s
+
+Cutting planes:
+  Lift-and-project: 13
+  Zero half: 6
+
+Explored 1 nodes (916116 simplex iterations) in 1177.00 seconds (1604.62 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 4: 1.76553 1.72508 1.56896 -0 
+
+Optimal solution found (tolerance 1.00e-02)
+Best objective 1.765529541546e+00, best bound 1.782977275565e+00, gap 0.9882%
+
+User-callback calls 20676, time in user-callback 0.46 sec
+  [OPTIMAL (全局最优)] 变现资产 obj=1.7655 | 物理空间触达节点=8
+
+  时空扩展还原路由序列 (10 动作节点, 换电数量 20 块):
+    [DEPOT] 站点  物理模拟时间=0.000h | 模型拓扑时间=0.000h
+    → 网格 8940e354dc7ffff  物理模拟累加=0.087h  模型联动锚定=0.100h (换电 y=4)
+    → 网格 8940e354dcfffff  物理模拟累加=0.178h  模型联动锚定=0.200h (换电 y=3)
+    → 网格 8940e354dd3ffff  物理模拟累加=0.261h  模型联动锚定=0.300h (换电 y=2)
+    → 网格 8940e30b643ffff  物理模拟累加=0.359h  模型联动锚定=0.400h (换电 y=2)
+    → 网格 8940e30b633ffff  物理模拟累加=0.448h  模型联动锚定=0.500h (换电 y=3)
+    → 网格 8940e30b613ffff  物理模拟累加=0.539h  模型联动锚定=0.600h (换电 y=3)
+    → 网格 8940e30b6abffff  物理模拟累加=0.622h  模型联动锚定=0.700h (换电 y=2)
+    → 网格 8940e30b603ffff  物理模拟累加=0.682h  模型联动锚定=0.800h (换电 y=1)
+    [DEPOT] 站点  物理模拟时间=0.811h | 模型拓扑时间=1.000h
+  ✓ 时空图时序一阶偏序审计通过 | 行驶净耗时 0.391h | 换电净耗时 0.400h | 周期总长 0.791h
+  [实验导出] M2b_default_20260728_111015 → D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139/
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 20840 (\N{CJK UNIFIED IDEOGRAPH-5168}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 23616 (\N{CJK UNIFIED IDEOGRAPH-5C40}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26368 (\N{CJK UNIFIED IDEOGRAPH-6700}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 20248 (\N{CJK UNIFIED IDEOGRAPH-4F18}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+  [Route viz] D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\M2b_default_route.png
+  [✓] M2b  | Status=OPTIMAL      | Obj=1.7655 | CPU=1598.3s | Gap=0.99% | Visited=8 | SoonRatio=100.0%
+
+--- [4/6] M3 ---
+
+======================================================================
+  SOS2-PLA (M3)
+  Role: Nonlinear Approximation Benchmark
+  P=10 | MIPGap=0.05 | Method=Primal
+  Target Datetime: 2025/11/02 12:00
+======================================================================
+[M3] SOS2-PLA Pipeline | P=10 | Geo-Fence=✓
+============================================================
+Step 1/6: 加载数据与预处理
+============================================================
+  数据文件: D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\2_Training\Training_Results\20260727_115935\prediction_CB_Hurdle.csv
+  目标时间: 2025-11-02 12:00:00
+  原始网格数量: 663
+
+============================================================
+Step 2/6: 提取坐标 & 构建旅行时间矩阵
+============================================================
+  Depot 坐标未指定，自动使用网格质心: (30.787269, 103.918336)
+  车速设定: 30.0 km/h
+  弧段裁剪阈值: ≤0.2h
+  可行弧段预览: ~242954 / ~440232 (55.2%)
+
+============================================================
+Step 3/6: 构建 PLA 效用矩阵 Omega
+============================================================
+  C_max=20, T_total=1.0, P_intervals=10
+
+============================================================
+Step 4/6: Geo-Fencing 空间剪枝
+============================================================
+  [节点过滤] 零效用网格剔除: 198 / 663
+              活跃网格保留: 465
+  [边长裁剪] 活跃弧段: 120536 / ~216690 (55.6%)
+
+============================================================
+Step 5/6: 执行 Gurobi PLA-MIP 求解
+============================================================
+Set parameter MIPGap to value 0.05
+Set parameter TimeLimit to value 1200
+Set parameter Method to value 0
+Set parameter MIPFocus to value 1
+Set parameter Heuristics to value 0.15
+Set parameter Cuts to value 1
+Set parameter Symmetry to value 2
+Set parameter NoRelHeurTime to value 60
+Set parameter Threads to value 8
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (win64 - Windows 11.0 (22000.2))
+
+CPU model: Intel(R) Core(TM) i5-10210U CPU @ 1.60GHz, instruction set [SSE2|AVX|AVX2]
+Thread count: 4 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 128446 rows, 177733 columns and 886433 nonzeros
+Model fingerprint: 0x7f96f36a
+Model has 4650 SOS constraints
+Variable types: 51616 continuous, 126117 integer (125651 binary)
+Coefficient statistics:
+  Matrix range     [2e-02, 2e+01]
+  Objective range  [3e-18, 9e-01]
+  Bounds range     [1e+00, 2e+01]
+  RHS range        [1e+00, 2e+01]
+
+Warning: Completing partial solution with 126051 unfixed non-continuous variables out of 126117
+User MIP start produced solution with objective 1.68887 (0.65s)
+Loaded user MIP start with objective 1.68887
+
+Presolve removed 3 rows and 2 columns (presolve time = 5s) ...
+Presolve removed 2 rows and 1 columns
+Presolve time: 6.83s
+Presolved: 128444 rows, 177732 columns, 1385251 nonzeros
+Presolved model has 4650 SOS constraint(s)
+Variable types: 51615 continuous, 126117 integer (125652 binary)
+Starting NoRel heuristic
+Elapsed time for NoRel heuristic: 9s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 16s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 34s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 40s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 46s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 53s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 60s (best bound 42.1442)
+Elapsed time for NoRel heuristic: 69s (best bound 37.3)
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+       0   -0.0000000e+00   0.000000e+00   2.173854e+02     78s
+   11092    3.2108164e+00   0.000000e+00   3.260580e+03     80s
+   15539    3.3090898e+00   2.912086e-03   0.000000e+00     85s
+   15677    3.3090898e+00   0.000000e+00   0.000000e+00     86s
+
+Root relaxation: objective 3.309090e+00, 15677 iterations, 7.88 seconds (5.28 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    3.30909    0   41    1.68887    3.30909  95.9%     -   91s
+H    0     0                       1.6974338    3.30909  94.9%     -  140s
+     0     0    3.30833    0   56    1.69743    3.30833  94.9%     -  150s
+     0     0    3.30716    0   55    1.69743    3.30716  94.8%     -  199s
+     0     0    3.30708    0   55    1.69743    3.30708  94.8%     -  202s
+     0     0    3.29885    0   70    1.69743    3.29885  94.3%     -  209s
+     0     0    3.29345    0   73    1.69743    3.29345  94.0%     -  222s
+     0     0    3.27997    0  102    1.69743    3.27997  93.2%     -  230s
+     0     0    3.27932    0  109    1.69743    3.27932  93.2%     -  243s
+     0     0    3.27387    0  100    1.69743    3.27387  92.9%     -  252s
+     0     2    3.17112    0  100    1.69743    3.17112  86.8%     -  323s
+H    1     4                       1.8209540    3.17112  74.1%  3466  374s
+     3     8    3.17112    2  113    1.82095    3.17112  74.1%  1813  379s
+     7    16    3.17112    3  116    1.82095    3.17112  74.1%  1299  388s
+    15    24    3.17112    4  113    1.82095    3.17112  74.1%   998  393s
+    23    32    3.17112    5  112    1.82095    3.17112  74.1%   904  396s
+    31    40    3.17112    6  108    1.82095    3.17112  74.1%   675  411s
+    39    48    3.17112    7  101    1.82095    3.17112  74.1%   726  422s
+    47    57    3.14295    8   98    1.82095    3.17112  74.1%   676  443s
+    56    71    3.17112    8  101    1.82095    3.17112  74.1%   729  455s
+    70    79    3.17112    9  101    1.82095    3.17112  74.1%   709  561s
+H   74    79                       1.8209547    3.17112  74.1%   671  561s
+    78    87    3.17112   10   98    1.82095    3.17112  74.1%   688  623s
+H   80    87                       1.8209548    3.17112  74.1%   676  623s
+H   81    87                       1.8209551    3.17112  74.1%   678  624s
+H   85    87                       1.8245772    3.17112  73.8%   681  624s
+    86    96    3.17112   10  100    1.82458    3.17112  73.8%   673  644s
+    95   111    3.17112   11   99    1.82458    3.17112  73.8%   637  651s
+   110   127    3.17112   12   99    1.82458    3.17112  73.8%   612  663s
+   126   143    3.17112   13   98    1.82458    3.17112  73.8%   632  673s
+   142   159    3.17112   14   98    1.82458    3.17112  73.8%   632  683s
+   158   179    3.17112   15   94    1.82458    3.17112  73.8%   623  693s
+   178   197    3.17112   19   89    1.82458    3.17112  73.8%   595  702s
+   196   212    3.17112   24   88    1.82458    3.17112  73.8%   576  714s
+   211   233    3.17112   26   87    1.82458    3.17112  73.8%   600  726s
+   232   252    3.17112   28   86    1.82458    3.17112  73.8%   600  745s
+   251   275    3.17112   29   84    1.82458    3.17112  73.8%   599  761s
+   274   300    3.17112   29   85    1.82458    3.17112  73.8%   593  778s
+   299   316    3.17112   30   85    1.82458    3.17112  73.8%   599  844s
+H  300   316                       1.8536434    3.17112  71.1%   597  844s
+   315   347    3.17112   32   95    1.85364    3.17112  71.1%   599  856s
+   346   390    3.17112   34   92    1.85364    3.17112  71.1%   579  875s
+   389   437    3.17112   37   89    1.85364    3.17112  71.1%   553  891s
+   436   495    3.17112   40   88    1.85364    3.17112  71.1%   529  905s
+   494   540    3.17112   42   88    1.85364    3.17112  71.1%   492  921s
+   539   613    3.17112   47   79    1.85364    3.17112  71.1%   479  936s
+   612   695    3.17112   48   79    1.85364    3.17112  71.1%   441  948s
+   694   761    3.17112   52   74    1.85364    3.17112  71.1%   403  963s
+   760   829    3.17112   55   68    1.85364    3.17112  71.1%   385  981s
+   828   895    3.17112   57   75    1.85364    3.17112  71.1%   366 1001s
+   895  1002    3.17112   59   68    1.85364    3.17112  71.1%   350 1014s
+  1002  1109    3.17112   82   68    1.85364    3.17112  71.1%   322 1029s
+  1109  1233    3.16721  108   66    1.85364    3.17112  71.1%   300 1042s
+  1245  1376    3.16630  136   66    1.85364    3.17112  71.1%   275 1055s
+H 1402  1476                       1.8536438    3.17112  71.1%   250 1108s
+  1502  1625    3.16610  169   66    1.85364    3.17112  71.1%   236 1123s
+  1659  1764    3.16303  207   67    1.85364    3.17112  71.1%   221 1142s
+  1814  1928    3.16102  249   67    1.85364    3.17112  71.1%   211 1154s
+  1988  2030    3.16089  295   67    1.85364    3.17112  71.1%   197 1175s
+  2100  2256    3.15629  345   68    1.85364    3.17112  71.1%   191 1190s
+  2338  2521    3.15580  398   68    1.85364    3.17112  71.1%   176 1200s
+
+Cutting planes:
+  Gomory: 1
+  Lift-and-project: 2
+  Implied bound: 25
+  MIR: 24
+  Flow cover: 13
+  RLT: 2
+  Relax-and-lift: 12
+
+Explored 2615 nodes (467600 simplex iterations) in 1200.58 seconds (669.48 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 5: 1.85364 1.82458 1.82096 ... 1.68887
+
+Time limit reached
+Best objective 1.853643803695e+00, best bound 3.171123073057e+00, gap 71.0751%
+
+User-callback calls 74910, time in user-callback 1.49 sec
+
+  求解耗时: 1218.1 秒
+  求解状态: 9
+  进度摘要: [M3] Runtime=1200.1s | Obj=1.8536 | Bound=3.1711 | Gap=71.08% | Nodes=2614.0
+
+============================================================
+Step 6/6: 结果解析
+============================================================
+  求解状态: TIME_LIMIT (超时截断)
+  目标函数值: 1.853644
+  访问网格数: 9 / 465
+
+  路由序列 (11 个节点):
+    [DEPOT]  到达时间: 0.0000h
+    → 8940e30b6cbffff  (到达 0.0562h, 换电 9 块)
+    → 8940e30b653ffff  (到达 0.2479h, 换电 3 块)
+    → 8940e30b643ffff  (到达 0.3195h, 换电 2 块)
+    → 8940e354db3ffff  (到达 0.3789h, 换电 1 块)
+    → 8940e354d8fffff  (到达 0.4183h, 换电 1 块)
+    → 8940e354d8bffff  (到达 0.4498h, 换电 1 块)
+    → 8940e354dd3ffff  (到达 0.4930h, 换电 1 块)
+    → 8940e354dcfffff  (到达 0.5363h, 换电 1 块)
+    → 8940e356e3bffff  (到达 0.7376h, 换电 1 块)
+    [DEPOT]  到达时间: 0.8668h
+
+  汇总:
+    总换电量: 20
+    总行驶时间: 0.4668 h
+    总服务时间: 0.4000 h
+    完工时间: 0.8668 h
+  [实验导出] M3_default_20260728_113120 → D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139/
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 36229 (\N{CJK UNIFIED IDEOGRAPH-8D85}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26102 (\N{CJK UNIFIED IDEOGRAPH-65F6}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 25130 (\N{CJK UNIFIED IDEOGRAPH-622A}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26029 (\N{CJK UNIFIED IDEOGRAPH-65AD}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+  [Route viz] D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\M3_default_route.png
+  [✓] M3   | Status=TIME_LIMIT   | Obj=1.8536 | CPU=1218.1s | Gap=71.08% | Visited=9 | SoonRatio=100.0%
+
+--- [5/6] M4 ---
+
+======================================================================
+  Delta-PLA (M4)
+  Role: Nonlinear Approximation Benchmark
+  P=10 | MIPGap=0.05 | Cuts=2
+  Target Datetime: 2025/11/02 12:00
+======================================================================
+[M4] Delta-PLA Pipeline | P=10 | Geo-Fence=✓
+============================================================
+Step 1/6: 加载数据与预处理
+============================================================
+  数据文件: D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\2_Training\Training_Results\20260727_115935\prediction_CB_Hurdle.csv
+  目标时间: 2025-11-02 12:00:00
+  原始网格数量: 663
+
+============================================================
+Step 2/6: 提取坐标 & 构建旅行时间矩阵
+============================================================
+  Depot 坐标未指定，自动使用网格质心: (30.787269, 103.918336)
+  车速设定: 30.0 km/h
+  弧段裁剪阈值: ≤0.2h
+  可行弧段预览: ~242954 / ~440232 (55.2%)
+
+============================================================
+Step 3/6: 构建 PLA 效用矩阵 Omega
+============================================================
+  C_max=20, T_total=1.0, P_intervals=10
+
+============================================================
+Step 4/6: Geo-Fencing 空间剪枝
+============================================================
+  [节点过滤] 零效用网格剔除: 198 / 663
+              活跃网格保留: 465
+  [边长裁剪] 活跃弧段: 120536 / ~216690 (55.6%)
+
+============================================================
+Step 5/6: 执行 Gurobi PLA-MIP 求解 (增量 Delta 模型)
+============================================================
+Set parameter MIPGap to value 0.05
+Set parameter TimeLimit to value 1200
+Set parameter Method to value 0
+Set parameter MIPFocus to value 1
+Set parameter Heuristics to value 0.15
+Set parameter Cuts to value 2
+Set parameter Symmetry to value 2
+Set parameter NoRelHeurTime to value 120
+Set parameter Threads to value 8
+Set parameter PrePasses to value 5
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (win64 - Windows 11.0 (22000.2))
+
+CPU model: Intel(R) Core(TM) i5-10210U CPU @ 1.60GHz, instruction set [SSE2|AVX|AVX2]
+Thread count: 4 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 211681 rows, 173083 columns and 959438 nonzeros
+Model fingerprint: 0x40f2aacd
+Variable types: 466 continuous, 172617 integer (172151 binary)
+Coefficient statistics:
+  Matrix range     [2e-02, 2e+01]
+  Objective range  [3e-18, 9e-01]
+  Bounds range     [1e+00, 2e+01]
+  RHS range        [1e+00, 2e+01]
+Using branch priorities.
+
+Warning: Completing partial solution with 172051 unfixed non-continuous variables out of 172617
+User MIP start did not produce a new incumbent solution
+User MIP start violates constraint MTZ_8940e30b6cbffff_8940e30b653ffff by 0.091653828
+
+Found heuristic solution: objective -0.0000000
+Presolve removed 41852 rows and 2 columns (presolve time = 5s) ...
+Presolve removed 41853 rows and 2 columns (presolve time = 10s) ...
+Presolve removed 41852 rows and 1 columns
+Presolve time: 11.85s
+Presolved: 169829 rows, 173082 columns, 874676 nonzeros
+Variable types: 0 continuous, 173082 integer (172152 binary)
+Starting NoRel heuristic
+Elapsed time for NoRel heuristic: 6s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 12s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 18s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 32s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 37s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 42s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 48s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 54s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 61s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 69s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 77s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 84s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 114s (best bound 32.9776)
+Elapsed time for NoRel heuristic: 124s (best bound 32.5867)
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+       0   -0.0000000e+00   0.000000e+00   1.164500e+02    138s
+    9352    3.3293018e+00   0.000000e+00   7.578057e+01    140s
+   27838    3.3090522e+00   5.394118e+00   0.000000e+00    145s
+   28062    3.3090898e+00   0.000000e+00   0.000000e+00    146s
+
+Root relaxation: objective 3.309090e+00, 28062 iterations, 7.53 seconds (6.33 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    3.30909    0   39   -0.00000    3.30909      -     -  149s
+H    0     0                       0.7390997    3.30909   348%     -  238s
+     0     0    3.11281    0  133    0.73910    3.11281   321%     -  270s
+H    0     0                       0.9419315    3.11281   230%     -  294s
+     0     0    2.95064    0   82    0.94193    2.95064   213%     -  300s
+     0     0    2.90162    0   65    0.94193    2.90162   208%     -  334s
+     0     0    2.88753    0   60    0.94193    2.88753   207%     -  340s
+     0     0    2.88224    0   42    0.94193    2.88224   206%     -  365s
+H    0     0                       1.1977545    2.88224   141%     -  460s
+     0     0    2.88224    0   38    1.19775    2.88224   141%     -  461s
+     0     0    2.87918    0   61    1.19775    2.87918   140%     -  496s
+     0     0    2.87442    0   53    1.19775    2.87442   140%     -  512s
+     0     0    2.86817    0   94    1.19775    2.86817   139%     -  540s
+H    0     0                       1.1989251    2.86817   139%     -  612s
+     0     2    2.77087    0   94    1.19893    2.77087   131%     -  616s
+H    1     4                       1.2260208    2.77087   126%  2056  631s
+H    2     4                       1.2386391    2.77087   124%  1067  631s
+     7    16    2.77087    3  101    1.23864    2.77087   124%   683  643s
+    15    24    2.77087    4  137    1.23864    2.77087   124%  1082  661s
+    23    32    2.77087    4  137    1.23864    2.77087   124%  1738  680s
+    31    40    2.77087    5  131    1.23864    2.77087   124%  1825  685s
+    39    48    2.77087    6  132    1.23864    2.77087   124%  1627  690s
+    47    57    2.77087    7  128    1.23864    2.77087   124%  1461  696s
+    56    65    2.77087    8  114    1.23864    2.77087   124%  1349  715s
+H   64    73                       1.2716707    2.77087   118%  1260  740s
+H   65    73                       1.3247092    2.77087   109%  1248  740s
+H   66    73                       1.3333323    2.77087   108%  1233  740s
+    72    86    2.77087   10  128    1.33333    2.77087   108%  1184  746s
+    85    98    2.77087   11  146    1.33333    2.77087   108%  1097  754s
+    97   114    2.77087   12  125    1.33333    2.77087   108%  1048  761s
+   113   132    2.77087   13  130    1.33333    2.77087   108%   965  767s
+   131   150    2.77087   15  118    1.33333    2.77087   108%   893  773s
+   149   166    2.77087   16  137    1.33333    2.77087   108%   832  779s
+   165   188    2.77087   18   96    1.33333    2.77087   108%   802  786s
+   187   204    2.77087   18  133    1.33333    2.77087   108%   745  798s
+   203   229    2.77087   19  126    1.33333    2.77087   108%   710  806s
+   232   256    2.77087   20  125    1.33333    2.77087   108%   661  813s
+   261   276    2.77087   22  125    1.33333    2.77087   108%   620  820s
+   287   300    2.77087   23  141    1.33333    2.77087   108%   593  828s
+   319   308    2.77087   24  128    1.33333    2.77087   108%   560  871s
+H  323   308                       1.3770163    2.77087   101%   558  871s
+   327   338    2.77087   24   89    1.37702    2.77087   101%   555  880s
+   367   383    2.77087   25  104    1.37702    2.77087   101%   516  888s
+   430   432    2.77087   28   79    1.37702    2.77087   101%   452  896s
+   495   494    2.74555   33   87    1.37702    2.77087   101%   404  906s
+   575   558 infeasible   44         1.37702    2.77087   101%   354  914s
+   657   593    2.64724   53   98    1.37702    2.77087   101%   317  925s
+   702   600    2.63262   60  115    1.37702    2.77087   101%   304  959s
+H  703   600                       1.3816348    2.77087   101%   303  959s
+H  704   600                       1.3945451    2.77087  98.7%   303  959s
+H  709   600                       1.4642698    2.77087  89.2%   304  959s
+   711   671 infeasible   61         1.46427    2.77087  89.2%   303  967s
+   802   742 infeasible   74         1.46427    2.77087  89.2%   274  975s
+   893   843    2.61712   90  109    1.46427    2.77087  89.2%   253  986s
+  1014   953    2.61395  106  106    1.46427    2.77087  89.2%   228  995s
+  1139  1037    2.61271  131   77    1.46427    2.77087  89.2%   210 1003s
+  1252  1095    2.77087    6  126    1.46427    2.77087  89.2%   198 1013s
+  1328  1147    2.77087    7   90    1.46427    2.77087  89.2%   195 1020s
+  1407  1199    2.77087    7  109    1.46427    2.77087  89.2%   190 1030s
+  1494  1238    2.77087    9  124    1.46427    2.77087  89.2%   186 1038s
+  1555  1304    2.77087   11  117    1.46427    2.77087  89.2%   185 1048s
+  1646  1309    2.77087   14  124    1.46427    2.77087  89.2%   181 1065s
+H 1650  1309                       1.4771800    2.77087  87.6%   181 1065s
+  1656  1372    2.77087   17  125    1.47718    2.77087  87.6%   181 1075s
+  1745  1441    2.77087   18  128    1.47718    2.77087  87.6%   178 1086s
+  1843  1531    2.77087   22  119    1.47718    2.77087  87.6%   173 1096s
+  1958  1614    2.77087   42  105    1.47718    2.77087  87.6%   168 1133s
+  2062  1700    2.76967   54   83    1.47718    2.77087  87.6%   166 1144s
+  2187  1787    2.76784   55   74    1.47718    2.77087  87.6%   163 1158s
+  2329  1909    2.76385   58  107    1.47718    2.77087  87.6%   160 1173s
+  2496  2130    2.75496   93  105    1.47718    2.77087  87.6%   156 1189s
+  2757  2224    2.60534  146   86    1.47718    2.77087  87.6%   145 1200s
+
+Cutting planes:
+  Gomory: 22
+  Lift-and-project: 10
+  Cover: 20
+  Implied bound: 47
+  Projected implied bound: 2
+  MIR: 31
+  StrongCG: 25
+  Flow cover: 98
+  GUB cover: 28
+  Inf proof: 1
+  Zero half: 22
+  RLT: 1
+  Relax-and-lift: 67
+
+Explored 2876 nodes (481309 simplex iterations) in 1200.31 seconds (730.31 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 10: 1.47718 1.46427 1.39455 ... 1.22602
+
+Time limit reached
+Best objective 1.477179996526e+00, best bound 2.770873098119e+00, gap 87.5786%
+
+User-callback calls 122563, time in user-callback 1.48 sec
+
+  求解耗时: 1218.7 秒
+  求解状态: 9
+  进度摘要: [M4] Runtime=1200.1s | Obj=1.4772 | Bound=2.7709 | Gap=87.58% | Nodes=2875.0
+
+============================================================
+Step 6/6: 结果解析
+============================================================
+  求解状态: TIME_LIMIT (超时截断)
+  目标函数值: 1.477180
+  访问网格数: 9 / 465
+
+  路由序列 (11 个节点):
+    [DEPOT]  到达时间: 0.0000h
+    → 8940e354dcfffff  (到达 0.1000h, 换电 3 块)
+    → 8940e354dd3ffff  (到达 0.2000h, 换电 2 块)
+    → 8940e30b653ffff  (到达 0.3000h, 换电 3 块)
+    → 8940e30b643ffff  (到达 0.4000h, 换电 2 块)
+    → 8940e30b633ffff  (到达 0.5000h, 换电 2 块)
+    → 8940e30b6cbffff  (到达 0.6000h, 换电 3 块)
+    → 8940e30b603ffff  (到达 0.7000h, 换电 1 块)
+    → 8940e354d8fffff  (到达 0.8000h, 换电 1 块)
+    → 8940e356b67ffff  (到达 0.9000h, 换电 1 块)
+    [DEPOT]  到达时间: 0.9771h
+
+  汇总:
+    总换电量: 18
+    总行驶时间: 0.4789 h
+    总服务时间: 0.3600 h
+    完工时间: 0.8389 h
+  [实验导出] M4_default_20260728_115211 → D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139/
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 36229 (\N{CJK UNIFIED IDEOGRAPH-8D85}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26102 (\N{CJK UNIFIED IDEOGRAPH-65F6}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 25130 (\N{CJK UNIFIED IDEOGRAPH-622A}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26029 (\N{CJK UNIFIED IDEOGRAPH-65AD}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+  [Route viz] D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\M4_default_route.png
+  [✓] M4   | Status=TIME_LIMIT   | Obj=1.4772 | CPU=1218.7s | Gap=87.58% | Visited=9 | SoonRatio=100.0%
+
+--- [6/6] M5 ---
+
+======================================================================
+  MCF-Baseline (M5)
+  Role: Classical Baseline
+  P=10 | MIPGap=0.05 | LazyMTZ=Yes
+  Target Datetime: 2025/11/02 12:00
+======================================================================
+[M5] Delta-MCF Pipeline | P=10 | Geo-Fence=✓
+  数据=D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\2_Training\Training_Results\20260727_115935\prediction_CB_Hurdle.csv | C=20 T=1.0 P=10 Y={1..10} arc≤0.2h | speed=30.0km/h
+  网格: 663→465 (剔除198零效用) | 弧段: 120536/216690 (56%)
+[求解] 开始 Delta+MCF...
+Set parameter MIPGap to value 0.05
+Set parameter TimeLimit to value 1200
+Set parameter Method to value 2
+Set parameter Crossover to value 0
+Set parameter Heuristics to value 0.1
+Set parameter Cuts to value 0
+Set parameter Symmetry to value 0
+Set parameter NoRelHeurTime to value 15
+Set parameter Threads to value 8
+Set parameter PreDual to value 0
+Set parameter PrePasses to value 8
+Set parameter NodeMethod to value 1
+Set parameter ImproveStartTime to value 0
+Set parameter LazyConstraints to value 1
+Set parameter BarHomogeneous to value 1
+Gurobi Optimizer version 11.0.3 build v11.0.3rc0 (win64 - Windows 11.0 (22000.2))
+
+CPU model: Intel(R) Core(TM) i5-10210U CPU @ 1.60GHz, instruction set [SSE2|AVX|AVX2]
+Thread count: 4 physical cores, 8 logical processors, using up to 8 threads
+
+Optimize a model with 212502 rows, 293619 columns and 1082785 nonzeros
+Model fingerprint: 0x6f16e028
+Variable types: 121002 continuous, 172617 integer (172151 binary)
+Coefficient statistics:
+  Matrix range     [1e-02, 2e+01]
+  Objective range  [3e-18, 9e-01]
+  Bounds range     [1e+00, 2e+01]
+  RHS range        [1e+00, 2e+01]
+Using branch priorities.
+
+Warning: Completing partial solution with 172051 unfixed non-continuous variables out of 172617
+User MIP start produced solution with objective 1.64521 (0.51s)
+Loaded user MIP start with objective 1.64521
+
+Presolve removed 42052 rows and 200 columns
+Presolve time: 4.38s
+Presolved: 170450 rows, 293419 columns, 986504 nonzeros
+Variable types: 120536 continuous, 172883 integer (172152 binary)
+Starting NoRel heuristic
+Found heuristic solution: objective 1.6976202
+Found heuristic solution: objective 1.7279974
+Found heuristic solution: objective 1.7702575
+Elapsed time for NoRel heuristic: 5s (best bound 13.8769)
+Found heuristic solution: objective 1.8031693
+Found heuristic solution: objective 1.8846482
+Elapsed time for NoRel heuristic: 11s (best bound 13.8769)
+Elapsed time for NoRel heuristic: 18s (best bound 13.8769)
+Root relaxation presolved: 170456 rows, 293419 columns, 986926 nonzeros
+
+Root barrier log...
+
+Ordering time: 0.33s
+
+Barrier statistics:
+ AA' NZ     : 8.808e+05
+ Factor NZ  : 1.922e+06 (roughly 200 MB of memory)
+ Factor Ops : 5.286e+08 (less than 1 second per iteration)
+ Threads    : 8
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   1.31867810e+00  4.57894115e+05  8.67e+05 7.07e-02  3.65e+01    25s
+   1   2.31333924e+02  3.97000880e+05  2.47e+05 6.22e-02  1.07e+01    25s
+   2  -8.71503752e+00  3.07139512e+05  4.33e+03 6.66e-15  5.76e-01    25s
+   3  -1.43417514e+01  3.71101224e+04  1.27e+03 1.81e-15  8.27e-02    26s
+   4  -8.58986504e+00  1.94251007e+04  5.12e+02 2.43e-15  3.87e-02    26s
+   5  -6.88493909e+00  1.41962285e+04  4.36e+02 4.15e-15  3.06e-02    26s
+   6  -4.56514606e+00  1.10268099e+04  3.16e+02 4.47e-15  2.34e-02    26s
+   7  -3.30868700e+00  7.65549662e+03  1.93e+02 4.99e-15  1.57e-02    27s
+   8  -1.66979501e+00  1.85060904e+03  7.98e+01 6.23e-15  4.80e-03    27s
+   9  -5.57014449e-02  8.99941339e+02  1.38e+01 1.25e-14  1.59e-03    27s
+  10   1.80112754e-01  3.85598833e+02  2.52e+00 1.13e-14  5.77e-04    27s
+  11   2.06261432e-01  3.74170348e+02  8.23e-01 1.04e-14  5.17e-04    28s
+  12   2.31968645e-01  1.22590981e+02  1.83e-02 3.86e-15  1.62e-04    28s
+  13   3.10248579e-01  4.68053723e+01  3.21e-07 1.47e-15  6.16e-05    28s
+  14   4.62403072e-01  4.05359672e+01  2.87e-10 1.73e-15  5.31e-05    28s
+  15   4.85859690e-01  3.87121198e+01  2.64e-10 1.91e-15  5.07e-05    28s
+  16   5.04597518e-01  3.64299559e+01  2.52e-10 2.53e-15  4.76e-05    29s
+  17   7.10484908e-01  3.31879029e+01  1.44e-10 2.55e-15  4.30e-05    29s
+  18   1.05503704e+00  2.30584274e+01  9.73e-11 1.61e-15  2.92e-05    29s
+  19   1.19745413e+00  1.91385702e+01  8.93e-11 2.03e-15  2.38e-05    30s
+  20   1.48239062e+00  1.77887102e+01  6.81e-11 2.14e-15  2.16e-05    30s
+  21   1.97521118e+00  1.18761991e+01  4.80e-11 1.82e-15  1.31e-05    30s
+  22   2.07226599e+00  9.69871852e+00  5.48e-11 1.96e-15  1.01e-05    30s
+  23   2.31610131e+00  8.22661559e+00  9.38e-11 2.06e-15  7.83e-06    31s
+  24   2.54421971e+00  7.01071719e+00  4.79e-11 1.92e-15  5.92e-06    31s
+  25   2.73924679e+00  6.58323385e+00  2.15e-10 2.00e-15  5.09e-06    31s
+  26   2.77378046e+00  5.74520883e+00  1.85e-10 1.43e-13  3.94e-06    31s
+  27   2.80906350e+00  5.40740911e+00  1.87e-10 1.24e-13  3.44e-06    32s
+  28   2.94134092e+00  5.21100107e+00  1.46e-10 1.12e-13  3.01e-06    32s
+  29   2.98409539e+00  4.40904692e+00  1.25e-10 6.55e-14  1.89e-06    32s
+  30   3.01489764e+00  4.19537993e+00  1.08e-10 5.36e-14  1.56e-06    33s
+  31   3.02861523e+00  4.04855059e+00  1.00e-10 4.51e-14  1.35e-06    33s
+  32   3.05582383e+00  3.98599516e+00  8.67e-11 4.01e-14  1.23e-06    33s
+  33   3.08582339e+00  3.93240208e+00  7.10e-11 3.90e-14  1.12e-06    33s
+  34   3.15325225e+00  3.71128704e+00  4.23e-11 2.62e-14  7.39e-07    34s
+  35   3.19778646e+00  3.51413264e+00  2.99e-11 2.06e-14  4.19e-07    34s
+  36   3.27813852e+00  3.35653607e+00  1.95e-10 8.00e-14  1.04e-07    34s
+  37   3.30727984e+00  3.32699734e+00  7.42e-11 3.49e-14  2.61e-08    35s
+  38   3.30774959e+00  3.32642741e+00  4.27e-10 3.41e-14  2.47e-08    35s
+  39   3.30828494e+00  3.31786905e+00  1.30e-10 3.82e-11  1.27e-08    35s
+  40   3.30849457e+00  3.31560365e+00  1.02e-09 1.78e-12  9.42e-09    35s
+  41   3.30862602e+00  3.31427825e+00  6.36e-10 1.25e-12  7.49e-09    36s
+  42   3.30868566e+00  3.31212041e+00  2.14e-07 5.93e-09  4.55e-09    36s
+  43   3.30879086e+00  3.30968224e+00  5.61e-08 9.86e-09  1.18e-09    36s
+  44   3.30883573e+00  3.30920892e+00  4.47e-09 2.89e-08  4.95e-10    36s
+  45   3.30884374e+00  3.30899485e+00  3.63e-09 1.04e-07  2.00e-10    37s
+  46   3.30884422e+00  3.30886513e+00  4.09e-09 1.38e-07  2.79e-11    37s
+  47   3.30884633e+00  3.30884658e+00  3.09e-10 1.64e-07  5.59e-13    37s
+  48   3.30884652e+00  3.30884652e+00  9.29e-13 8.23e-14  9.98e-19    37s
+
+Barrier solved model in 48 iterations and 37.32 seconds (18.32 work units)
+Optimal objective 3.30884652e+00
+
+
+Root crossover log...
+
+  166689 DPushes remaining with DInf 0.0000000e+00                37s
+       0 DPushes remaining with DInf 0.0000000e+00                38s
+
+      70 PPushes remaining with PInf 0.0000000e+00                38s
+       0 PPushes remaining with PInf 0.0000000e+00                38s
+
+  Push phase complete: Pinf 0.0000000e+00, Dinf 9.5260771e-02     38s
+
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+   78143    3.3088465e+00   0.000000e+00   9.526077e-02     38s
+   80763    3.3088466e+00   0.000000e+00   3.794931e-01     40s
+   81816    3.3088465e+00   0.000000e+00   0.000000e+00     42s
+   81816    3.3088465e+00   0.000000e+00   0.000000e+00     42s
+
+Root relaxation: objective 3.308847e+00, 81816 iterations, 18.68 seconds (12.75 work units)
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -   43s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -   62s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -   81s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -   90s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -   99s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -  111s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -  128s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -  145s
+     0     0    3.30885    0   43    1.88465    3.30885  75.6%     -  163s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  184s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  195s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  204s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  213s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  221s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  229s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  238s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  246s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  255s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  264s
+     0     0    3.30841    0   47    1.88465    3.30841  75.5%     -  272s
+
+Resetting heuristic parameters to focus on improving solution
+(using Heuristics=0.5 and RINS=10)...
+
+     2     4    3.20758    1   37    1.88465    3.20758  70.2%  9408  836s
+     4     8    3.20758    2   37    1.88465    3.20758  70.2% 27148 1195s
+     8     9    3.20758    3   41    1.88465    3.20758  70.2% 19240 1200s
+
+Cutting planes:
+  Lazy constraints: 280
+
+Explored 9 nodes (236321 simplex iterations) in 1200.25 seconds (1310.61 work units)
+Thread count was 8 (of 8 available processors)
+
+Solution count 6: 1.88465 1.80317 1.77026 ... 1.64521
+
+Time limit reached
+Best objective 1.884648210371e+00, best bound 3.207578108746e+00, gap 70.1951%
+
+User-callback calls 61122, time in user-callback 1.77 sec
+  [TIME_LIMIT (超时截断)] obj=1.8846 visited=5/465
+
+  路由 (7节点, 20块电池):
+    [DEPOT] @0.000h
+    →8940e30b6cbffff  cum=0.056h u=0.100h y=9
+    →8940e30b653ffff  cum=0.248h u=0.000h y=3 ⚠
+    →8940e30b643ffff  cum=0.320h u=0.100h y=2 ⚠
+    →8940e30b64fffff  cum=0.371h u=0.200h y=4 ⚠
+    →8940e30b647ffff  cum=0.462h u=0.300h y=2 ⚠
+    [DEPOT] @0.629h
+  ⚠ 4处时序偏差>0.05h
+  [实验导出] M5_default_20260728_121247 → D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139/
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 36229 (\N{CJK UNIFIED IDEOGRAPH-8D85}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26102 (\N{CJK UNIFIED IDEOGRAPH-65F6}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 25130 (\N{CJK UNIFIED IDEOGRAPH-622A}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\route_visualizer.py:272: UserWarning: Glyph 26029 (\N{CJK UNIFIED IDEOGRAPH-65AD}) missing from font(s) DejaVu Sans.
+  fig.savefig(save_path, dpi=dpi, bbox_inches='tight',
+  [Route viz] D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\M5_default_route.png
+  [✓] M5   | Status=TIME_LIMIT   | Obj=1.8846 | CPU=1216.2s | Gap=inf% | Visited=5 | SoonRatio=100.0%
+
+######################################################################
+#  批量实验完成! 总耗时: 6069s (101.1min)
+######################################################################
+  [批量汇总] 6 条实验记录 → D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\batch_summary_default_20260728_121248_full.csv
+
+====================================================================================================
+  实验对比摘要 (Experiment Comparison Summary)
+====================================================================================================
+---------------------------------------------------------------------------------------------
+ID    Status           ObjVal   CPU(s)    Gap%  Visit  Swaps   Soon%    Vars Constrs      B&B
+---------------------------------------------------------------------------------------------
+M1    OPTIMAL          1.7299    156.0    0.98      7     20 100.0% 2129441    6980        1
+M2a   OPTIMAL          1.7293    383.0    0.95      7     20 100.0% 3055512    9950        1
+M2b   OPTIMAL          1.7655   1598.3    0.99      8     20 100.0% 10000842    6980        1
+M3    TIME_LIMIT       1.8536   1218.1   71.08      9     20 100.0%  177733  128446     2614
+M4    TIME_LIMIT       1.4772   1218.7   87.58      9     18 100.0%  173083  211681     2875
+M5    TIME_LIMIT       1.8846   1216.2     N/A      5     20 100.0%  293619  212502        0
+---------------------------------------------------------------------------------------------
+
+  完整指标: D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\batch_summary_default_20260728_121248_full.csv
+  核心指标: D:\霄霄\THU\@@@科研资料\VRP\VRP-for-E-Bike-Battery-Swapping-Routing\3_Optimization\Optimization_Result_Summary\20260728_103139\batch_summary_default_20260728_121248_core.csv
