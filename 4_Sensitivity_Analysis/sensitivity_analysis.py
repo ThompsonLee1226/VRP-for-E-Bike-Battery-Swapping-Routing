@@ -20,8 +20,14 @@
   - 绘制并保存敏感性分析对比图表
 
 运行方式:
-  cd VRP-for-E-Bike-Battery-Swapping-Routing
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py                                      # 使用默认时间
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --datetime "2025/10/28 14:00"        # 指定具体时间
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random                             # 随机选取可用小时
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random --seed 42                   # 随机选取 (固定种子)
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --list-hours                         # 列出可用小时
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --data path/to/other.csv             # 指定数据文件
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --skip-cross                         # 跳过交叉项扫描
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --only speed swap_time               # 仅运行指定扫描
 
 =============================================================================
 """
@@ -31,6 +37,7 @@ from __future__ import annotations
 import sys
 import os
 import time
+import argparse
 import warnings
 import numpy as np
 import pandas as pd
@@ -44,7 +51,14 @@ OPTIM_DIR = os.path.join(PROJECT_ROOT, '3_Optimization')
 sys.path.insert(0, OPTIM_DIR)
 
 from main_STGraph import run_optimization_pipeline
-from Pre_Process import DEFAULT_TARGET_DATETIME, DEFAULT_PREDICTION_FILE
+from Pre_Process import (
+    DEFAULT_TARGET_DATETIME,
+    DEFAULT_PREDICTION_FILE,
+    DATETIME_RANGE_START,
+    DATETIME_RANGE_END,
+    select_random_datetime,
+    list_available_hours,
+)
 
 # ---------------------------------------------------------------------------
 # 可视化导入 (非交互后端, 适配服务器环境)
@@ -70,11 +84,20 @@ from tqdm import tqdm
 # =========================================================================
 # ★ 数据文件: 使用 CB_Hurdle 最优训练结果 (与 3_Optimization 共享)
 #    修改 3_Optimization/Pre_Process.py 中的 TRAINING_RESULT_DIR 即可切换
+#    也可通过 CLI --data 参数动态指定
 DATA_FILE = DEFAULT_PREDICTION_FILE
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'Results')
-PLOT_DIR = os.path.join(SCRIPT_DIR, 'Plots')
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(PLOT_DIR, exist_ok=True)
+TARGET_DATETIME = DEFAULT_TARGET_DATETIME   # 可通过 CLI --datetime / --random 覆盖
+
+# ★ 输出根目录 (每次运行创建带时间戳的子目录, 对齐 batch_runner.py 模式)
+OUTPUT_ROOT_DIR = os.path.join(SCRIPT_DIR, 'Results')
+PLOT_ROOT_DIR = os.path.join(SCRIPT_DIR, 'Plots')
+os.makedirs(OUTPUT_ROOT_DIR, exist_ok=True)
+os.makedirs(PLOT_ROOT_DIR, exist_ok=True)
+
+# ★ 运行时变量 (在 __main__ 中通过 CLI 解析后赋值)
+RUN_TIMESTAMP: str = ""
+RUN_OUTPUT_DIR: str = ""
+RUN_PLOT_DIR: str = ""
 
 # =========================================================================
 # 固定参数 (与 main_STGraph.py 默认值保持一致)
@@ -220,7 +243,8 @@ def extract_metrics(result: dict, swap_time_c: float = FIXED_SWAP_TIME_C) -> dic
 # =========================================================================
 # 核心扫描函数
 # =========================================================================
-def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn) -> pd.DataFrame:
+def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn,
+                      output_dir: str = "", target_datetime: str = "") -> pd.DataFrame:
     """单变量扫描的通用执行引擎。
 
     Parameters
@@ -231,6 +255,10 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn) -> p
         变量取值列表。
     build_kwargs_fn : callable
         接收单个参数值, 返回传给 run_optimization_pipeline 的 kwargs 字典。
+    output_dir : str
+        本次运行的输出目录 (对齐 batch_runner.py 的 run_output_dir 模式)。
+    target_datetime : str
+        目标日期时间字符串 (对齐 3_Optimization 的 --datetime 模式)。
 
     Returns
     -------
@@ -239,10 +267,13 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn) -> p
     """
     records = []
     n_total = len(param_values)
+    _out_dir = output_dir or RUN_OUTPUT_DIR
+    _tgt_dt = target_datetime or TARGET_DATETIME
 
     print(f"\n{'='*70}")
     print(f"  敏感性扫描: {param_name}")
     print(f"  测试范围: {param_values}")
+    print(f"  目标时间: {_tgt_dt}")
     print(f"  固定时间上限: {FIXED_TIME_LIMIT_S}s | 固定周期: {FIXED_T_TOTAL}h")
     print(f"{'='*70}")
 
@@ -250,17 +281,19 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn) -> p
         print(f"\n--- [{idx+1}/{n_total}] {param_name} = {val} ---")
 
         kwargs = build_kwargs_fn(val)
-        # 注入固定参数
+        # 注入固定参数 (对齐 3_Optimization 的共享参数模式)
         kwargs.setdefault("data_file", DATA_FILE)
-        kwargs.setdefault("target_datetime", DEFAULT_TARGET_DATETIME)
+        kwargs.setdefault("target_datetime", _tgt_dt)
         kwargs.setdefault("swap_time_c", FIXED_SWAP_TIME_C)
         kwargs.setdefault("T_total", FIXED_T_TOTAL)
         kwargs.setdefault("max_travel_time", FIXED_MAX_TRAVEL_TIME)
         kwargs.setdefault("K_neighbors", FIXED_K_NEIGHBORS)
         kwargs.setdefault("time_limit_s", FIXED_TIME_LIMIT_S)
         kwargs.setdefault("verbose", True)
+        # ★ 显式传入 output_dir, 让 run_optimization_pipeline 输出到本次运行目录
+        kwargs.setdefault("output_dir", _out_dir)
 
-        # 设置实验标签
+        # 设置实验标签 (对齐 experiment_utils 的 {experiment_id}_{instance_name}_{timestamp} 模式)
         kwargs.setdefault("experiment_id", f"SENS_{param_name}")
         kwargs.setdefault("instance_name", f"{param_name}_{val}")
 
@@ -300,8 +333,10 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn) -> p
     # 汇总为 DataFrame
     df = pd.DataFrame(records)
 
-    # 保存至 CSV
-    csv_path = os.path.join(OUTPUT_DIR, f"sensitivity_results_{param_name}.csv")
+    # ★ 保存至 CSV (对齐 export_experiment_result 的命名: {experiment_id}_{instance_name}_{timestamp})
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    csv_name = f"SENS_{param_name}_sweep_summary_{timestamp}.csv"
+    csv_path = os.path.join(_out_dir, csv_name)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     print(f"\n  [CSV 已保存] {csv_path}")
 
@@ -312,7 +347,8 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn) -> p
 # 单因素扫描接口
 # =========================================================================
 
-def sweep_vehicle_speed(speed_values: list = None) -> pd.DataFrame:
+def sweep_vehicle_speed(speed_values: list = None,
+                        output_dir: str = "", target_datetime: str = "") -> pd.DataFrame:
     """车速敏感性扫描。
 
     固定: C_max=20, P_intervals=12, y_levels=[1..10]
@@ -329,9 +365,11 @@ def sweep_vehicle_speed(speed_values: list = None) -> pd.DataFrame:
             "y_levels": DEFAULT_Y_LEVELS,
         }
 
-    return _run_single_sweep("vehicle_speed_kmh", speed_values, build_kwargs)
+    return _run_single_sweep("vehicle_speed_kmh", speed_values, build_kwargs,
+                             output_dir=output_dir, target_datetime=target_datetime)
 
-def sweep_swap_time(swap_time_values: list = None) -> pd.DataFrame:
+def sweep_swap_time(swap_time_values: list = None,
+                    output_dir: str = "", target_datetime: str = "") -> pd.DataFrame:
     """单块换电服务时间敏感性扫描。
 
     固定: vehicle_speed_kmh=30, C_max=20, P_intervals=12, y_levels=[1..10]
@@ -349,9 +387,11 @@ def sweep_swap_time(swap_time_values: list = None) -> pd.DataFrame:
             "swap_time_c": swap_time,
         }
 
-    return _run_single_sweep("swap_time_c", swap_time_values, build_kwargs)
+    return _run_single_sweep("swap_time_c", swap_time_values, build_kwargs,
+                             output_dir=output_dir, target_datetime=target_datetime)
 
-def sweep_C_max(C_max_values: list = None) -> pd.DataFrame:
+def sweep_C_max(C_max_values: list = None,
+                output_dir: str = "", target_datetime: str = "") -> pd.DataFrame:
     """车载容量敏感性扫描。
 
     固定: vehicle_speed_kmh=30, P_intervals=12, y_levels 基准 = DEFAULT_Y_LEVELS
@@ -380,10 +420,12 @@ def sweep_C_max(C_max_values: list = None) -> pd.DataFrame:
             "y_levels": y_levels,
         }
 
-    return _run_single_sweep("C_max", C_max_values, build_kwargs)
+    return _run_single_sweep("C_max", C_max_values, build_kwargs,
+                             output_dir=output_dir, target_datetime=target_datetime)
 
 
-def sweep_P_intervals(P_values: list = None) -> pd.DataFrame:
+def sweep_P_intervals(P_values: list = None,
+                      output_dir: str = "", target_datetime: str = "") -> pd.DataFrame:
     """时空离散段数敏感性扫描。
 
     固定: vehicle_speed_kmh=30, C_max=20, y_levels=[1..10]
@@ -400,14 +442,16 @@ def sweep_P_intervals(P_values: list = None) -> pd.DataFrame:
             "y_levels": DEFAULT_Y_LEVELS,
         }
 
-    return _run_single_sweep("P_intervals", P_values, build_kwargs)
+    return _run_single_sweep("P_intervals", P_values, build_kwargs,
+                             output_dir=output_dir, target_datetime=target_datetime)
 
 
 # =========================================================================
 # 交叉项联合扫描: (P_intervals × vehicle_speed)
 # =========================================================================
 
-def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.DataFrame:
+def sweep_P_speed_cross(P_values: list = None, speed_values: list = None,
+                        output_dir: str = "", target_datetime: str = "") -> pd.DataFrame:
     """P_intervals × vehicle_speed 交叉项联合扫描。
 
     固定: C_max=20, y_levels=[1..10]
@@ -420,6 +464,10 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.
         P_intervals 取值列表, 默认 [8, 12, 16]。
     speed_values : list, optional
         vehicle_speed_kmh 取值列表, 默认 [20, 30, 40, 50]。
+    output_dir : str
+        本次运行的输出目录 (对齐 batch_runner.py 的 run_output_dir 模式)。
+    target_datetime : str
+        目标日期时间字符串 (对齐 3_Optimization 的 --datetime 模式)。
 
     Returns
     -------
@@ -433,12 +481,15 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.
 
     records = []
     n_total = len(P_values) * len(speed_values)
+    _out_dir = output_dir or RUN_OUTPUT_DIR
+    _tgt_dt = target_datetime or TARGET_DATETIME
 
     print(f"\n{'='*70}")
     print(f"  交叉项敏感性扫描: P_intervals × vehicle_speed")
     print(f"  P_intervals ∈ {P_values}")
     print(f"  vehicle_speed ∈ {speed_values}")
     print(f"  总计 {n_total} 个组合")
+    print(f"  目标时间: {_tgt_dt}")
     print(f"  固定: C_max={DEFAULT_C_MAX}, y_levels={list(DEFAULT_Y_LEVELS)}")
     print(f"  固定时间上限: {FIXED_TIME_LIMIT_S}s | 固定周期: {FIXED_T_TOTAL}h")
     print(f"{'='*70}")
@@ -455,7 +506,7 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.
                 "P_intervals": p,
                 "y_levels": DEFAULT_Y_LEVELS,
                 "data_file": DATA_FILE,
-                "target_datetime": DEFAULT_TARGET_DATETIME,
+                "target_datetime": _tgt_dt,
                 "swap_time_c": FIXED_SWAP_TIME_C,
                 "T_total": FIXED_T_TOTAL,
                 "max_travel_time": FIXED_MAX_TRAVEL_TIME,
@@ -464,6 +515,8 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.
                 "verbose": True,
                 "experiment_id": "SENS_P_speed_cross",
                 "instance_name": f"P{p}_spd{speed}",
+                # ★ 显式传入 output_dir, 对齐 batch_runner 模式
+                "output_dir": _out_dir,
             }
 
             t_start = time.perf_counter()
@@ -500,7 +553,10 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.
 
     df = pd.DataFrame(records)
 
-    csv_path = os.path.join(OUTPUT_DIR, "sensitivity_results_P_speed_cross.csv")
+    # ★ 保存至 CSV (对齐 export_experiment_result 命名模式)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    csv_name = f"SENS_P_speed_cross_sweep_summary_{timestamp}.csv"
+    csv_path = os.path.join(_out_dir, csv_name)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     print(f"\n  [CSV 已保存] {csv_path}")
 
@@ -511,8 +567,9 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None) -> pd.
 # 可视化函数
 # =========================================================================
 
-def plot_speed_sensitivity(df: pd.DataFrame):
+def plot_speed_sensitivity(df: pd.DataFrame, plot_dir: str = ""):
     """绘制"车速 vs. 求解耗时与总变现效用"的双 Y 轴折线图。"""
+    _plot_dir = plot_dir or RUN_PLOT_DIR
     speeds = df["vehicle_speed_kmh"].values
     elapsed = df["elapsed_seconds"].values
     objective = df["objective"].values
@@ -522,40 +579,41 @@ def plot_speed_sensitivity(df: pd.DataFrame):
     color1 = "#2B7BBD"
     color2 = "#E0533D"
 
-    # 左 Y 轴: 求解耗时
-    ax1.set_xlabel("车速 (km/h)", fontsize=13)
-    ax1.set_ylabel("求解耗时 (s)", color=color1, fontsize=13)
+    # Left Y axis: Solve Time
+    ax1.set_xlabel("speed (km/h)", fontsize=13)
+    ax1.set_ylabel("Solve Time (s)", color=color1, fontsize=13)
     line1, = ax1.plot(speeds, elapsed, 'o-', color=color1, linewidth=2.2,
-                       markersize=8, label="求解耗时 (elapsed_seconds)")
+                       markersize=8, label="Solve Time (elapsed_seconds)")
     ax1.tick_params(axis='y', labelcolor=color1)
     ax1.grid(True, alpha=0.3)
 
-    # 右 Y 轴: 总变现效用
+    # Right Y axis: Total Utility
     ax2 = ax1.twinx()
-    ax2.set_ylabel("总变现效用 (objective)", color=color2, fontsize=13)
-    # 过滤掉 None 值
+    ax2.set_ylabel("Total Utility (objective)", color=color2, fontsize=13)
+    # Filter out None values
     valid_mask = objective != None  # noqa: E711
     line2, = ax2.plot(speeds[valid_mask], objective[valid_mask], 's--',
                        color=color2, linewidth=2.2, markersize=8,
-                       label="总变现效用 (objective)")
+                       label="Total Utility (objective)")
     ax2.tick_params(axis='y', labelcolor=color2)
 
-    # 图例合并
+    # Combined legend
     lines = [line1, line2]
     labels = [l.get_label() for l in lines]
     ax1.legend(lines, labels, loc="upper left", fontsize=11, framealpha=0.9)
 
-    ax1.set_title("车速敏感性分析: 求解耗时 vs. 总变现效用", fontsize=15, fontweight='bold')
+    ax1.set_title("Sensitivity Analysis: Vehicle Speed — Solve Time vs. Total Utility", fontsize=15, fontweight='bold')
     ax1.set_xticks(speeds)
 
     fig.tight_layout()
-    save_path = os.path.join(PLOT_DIR, "sensitivity_vehicle_speed.png")
+    save_path = os.path.join(_plot_dir, "sensitivity_vehicle_speed.png")
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"  [图表已保存] {save_path}")
+    print(f"  [Plot saved] {save_path}")
 
-def plot_swap_time_sensitivity(df: pd.DataFrame):
+def plot_swap_time_sensitivity(df: pd.DataFrame, plot_dir: str = ""):
     """绘制"单块换电服务时间 vs. 求解耗时与总变现效用"的双 Y 轴折线图。"""
+    _plot_dir = plot_dir or RUN_PLOT_DIR
     swap_times = df["swap_time_c"].values
     elapsed = df["elapsed_seconds"].values
     objective = df["objective"].values
@@ -565,39 +623,40 @@ def plot_swap_time_sensitivity(df: pd.DataFrame):
     color1 = "#2B7BBD"
     color2 = "#E0533D"
 
-    # 左 Y 轴: 求解耗时
-    ax1.set_xlabel("单块换电服务时间 (h)", fontsize=13)
-    ax1.set_ylabel("求解耗时 (s)", color=color1, fontsize=13)
+    # Left Y axis: Solve Time
+    ax1.set_xlabel("Per-Battery Swap Service Time (h)", fontsize=13)
+    ax1.set_ylabel("Solve Time (s)", color=color1, fontsize=13)
     line1, = ax1.plot(swap_times, elapsed, 'o-', color=color1, linewidth=2.2,
-                       markersize=8, label="求解耗时 (elapsed_seconds)")
+                       markersize=8, label="Solve Time (elapsed_seconds)")
     ax1.tick_params(axis='y', labelcolor=color1)
     ax1.grid(True, alpha=0.3)
 
-    # 右 Y 轴: 总变现效用
+    # Right Y axis: Total Utility
     ax2 = ax1.twinx()
-    ax2.set_ylabel("总变现效用 (objective)", color=color2, fontsize=13)
+    ax2.set_ylabel("Total Utility (objective)", color=color2, fontsize=13)
     valid_mask = objective != None  # noqa: E711
     line2, = ax2.plot(swap_times[valid_mask], objective[valid_mask], 's--',
                        color=color2, linewidth=2.2, markersize=8,
-                       label="总变现效用 (objective)")
+                       label="Total Utility (objective)")
     ax2.tick_params(axis='y', labelcolor=color2)
 
-    # 图例合并
+    # Combined legend
     lines = [line1, line2]
     labels = [l.get_label() for l in lines]
     ax1.legend(lines, labels, loc="upper left", fontsize=11, framealpha=0.9)
 
-    ax1.set_title("单块换电服务时间敏感性分析: 求解耗时 vs. 总变现效用", fontsize=15, fontweight='bold')
+    ax1.set_title("Sensitivity Analysis: Swap Service Time — Solve Time vs. Total Utility", fontsize=15, fontweight='bold')
     ax1.set_xticks(swap_times)
 
     fig.tight_layout()
-    save_path = os.path.join(PLOT_DIR, "sensitivity_swap_time.png")
+    save_path = os.path.join(_plot_dir, "sensitivity_swap_time.png")
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"  [图表已保存] {save_path}")
+    print(f"  [Plot saved] {save_path}")
 
-def plot_C_max_sensitivity(df: pd.DataFrame):
+def plot_C_max_sensitivity(df: pd.DataFrame, plot_dir: str = ""):
     """绘制"车载容量 vs. 实际换电总量与总变现效用"的柱状 + 折线组合图。"""
+    _plot_dir = plot_dir or RUN_PLOT_DIR
     c_values = df["C_max"].values.astype(int)
     total_swaps = df["total_swaps"].values
     objective = df["objective"].values
@@ -610,57 +669,58 @@ def plot_C_max_sensitivity(df: pd.DataFrame):
     x_pos = np.arange(len(c_values))
     bar_width = 0.45
 
-    # 左 Y 轴: 实际换电总量 (柱状图)
-    ax1.set_xlabel("车载最大容量 C_max (块)", fontsize=13)
-    ax1.set_ylabel("实际换电总量 (块)", color=color_bar, fontsize=13)
+    # Left Y axis: Total Swapped Batteries (bar chart)
+    ax1.set_xlabel("Vehicle Battery Capacity C_max (units)", fontsize=13)
+    ax1.set_ylabel("Total Swapped Batteries (units)", color=color_bar, fontsize=13)
     bars = ax1.bar(x_pos, total_swaps, bar_width, color=color_bar, alpha=0.85,
-                   edgecolor="white", linewidth=0.8, label="实际换电总量 (total_swaps)")
+                   edgecolor="white", linewidth=0.8, label="Total Swapped Batteries (total_swaps)")
     ax1.tick_params(axis='y', labelcolor=color_bar)
     ax1.set_xticks(x_pos)
     ax1.set_xticklabels(c_values)
     ax1.grid(True, axis='y', alpha=0.3)
 
-    # 在柱状图上标注数值
+    # Annotate values on bars
     for bar, val in zip(bars, total_swaps):
         if val is not None:
             ax1.text(bar.get_x() + bar.get_width() / 2., bar.get_height() + 0.5,
                      str(int(val)), ha='center', va='bottom', fontsize=10, fontweight='bold')
 
-    # 右 Y 轴: 总变现效用 (折线)
+    # Right Y axis: Total Utility (line)
     ax2 = ax1.twinx()
-    ax2.set_ylabel("总变现效用 (objective)", color=color_line, fontsize=13)
+    ax2.set_ylabel("Total Utility (objective)", color=color_line, fontsize=13)
     valid_mask = objective != None  # noqa: E711
     line, = ax2.plot(x_pos[valid_mask], objective[valid_mask], 'D-',
                       color=color_line, linewidth=2.2, markersize=9,
-                      label="总变现效用 (objective)")
+                      label="Total Utility (objective)")
     ax2.tick_params(axis='y', labelcolor=color_line)
 
-    # 在折线上标注数值
+    # Annotate values on line
     for xi, obj in zip(x_pos[valid_mask], objective[valid_mask]):
         if obj is not None:
             ax2.annotate(f"{obj:.2f}", (xi, obj),
                          textcoords="offset points", xytext=(0, 12),
                          ha='center', fontsize=9, color=color_line, fontweight='bold')
 
-    # 合并图例
+    # Combined legend
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor=color_bar, alpha=0.85, label="实际换电总量 (total_swaps)"),
+        Patch(facecolor=color_bar, alpha=0.85, label="Total Swapped Batteries (total_swaps)"),
         line,
     ]
     ax1.legend(handles=legend_elements, loc="upper left", fontsize=11, framealpha=0.9)
 
-    ax1.set_title("车载容量敏感性分析: 换电总量 vs. 总变现效用", fontsize=15, fontweight='bold')
+    ax1.set_title("Sensitivity Analysis: Battery Capacity — Swaps vs. Total Utility", fontsize=15, fontweight='bold')
 
     fig.tight_layout()
-    save_path = os.path.join(PLOT_DIR, "sensitivity_C_max.png")
+    save_path = os.path.join(_plot_dir, "sensitivity_C_max.png")
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"  [图表已保存] {save_path}")
+    print(f"  [Plot saved] {save_path}")
 
 
-def plot_P_intervals_sensitivity(df: pd.DataFrame):
+def plot_P_intervals_sensitivity(df: pd.DataFrame, plot_dir: str = ""):
     """绘制"离散段数 vs. 求解耗时与 Time_Gap"的双 Y 轴折线图。"""
+    _plot_dir = plot_dir or RUN_PLOT_DIR
     p_values = df["P_intervals"].values.astype(int)
     elapsed = df["elapsed_seconds"].values
     time_gap = df["Time_Gap"].values
@@ -670,42 +730,42 @@ def plot_P_intervals_sensitivity(df: pd.DataFrame):
     color1 = "#2B7BBD"
     color2 = "#E0533D"
 
-    # 左 Y 轴: 求解耗时
-    ax1.set_xlabel("时空离散段数 P_intervals", fontsize=13)
-    ax1.set_ylabel("求解耗时 (s)", color=color1, fontsize=13)
+    # Left Y axis: Solve Time
+    ax1.set_xlabel("Temporal Discretization Intervals P", fontsize=13)
+    ax1.set_ylabel("Solve Time (s)", color=color1, fontsize=13)
     line1, = ax1.plot(p_values, elapsed, 'o-', color=color1, linewidth=2.2,
-                       markersize=8, label="求解耗时 (elapsed_seconds)")
+                       markersize=8, label="Solve Time (elapsed_seconds)")
     ax1.tick_params(axis='y', labelcolor=color1)
     ax1.grid(True, alpha=0.3)
     ax1.set_xticks(p_values)
 
-    # 右 Y 轴: Time_Gap (时序偏离度)
+    # Right Y axis: Time_Gap (temporal deviation)
     ax2 = ax1.twinx()
-    ax2.set_ylabel("时序偏离度 Time_Gap (h)", color=color2, fontsize=13)
+    ax2.set_ylabel("Temporal Deviation Time_Gap (h)", color=color2, fontsize=13)
     valid_mask = time_gap != None  # noqa: E711
     line2, = ax2.plot(p_values[valid_mask], time_gap[valid_mask], '^--',
                        color=color2, linewidth=2.2, markersize=9,
-                       label="时序偏离度 (Time_Gap)")
+                       label="Temporal Deviation (Time_Gap)")
     ax2.tick_params(axis='y', labelcolor=color2)
 
-    # 标注零线, 便于观察正负偏离
+    # Mark zero line to observe positive/negative deviation
     ax2.axhline(y=0, color='gray', linestyle=':', linewidth=1.0, alpha=0.7)
 
-    # 合并图例
+    # Combined legend
     lines = [line1, line2]
     labels = [l.get_label() for l in lines]
     ax1.legend(lines, labels, loc="upper left", fontsize=11, framealpha=0.9)
 
-    ax1.set_title("时空离散段数敏感性分析: 求解耗时 vs. 时序偏离度", fontsize=15, fontweight='bold')
+    ax1.set_title("Sensitivity Analysis: P Intervals — Solve Time vs. Temporal Deviation", fontsize=15, fontweight='bold')
 
     fig.tight_layout()
-    save_path = os.path.join(PLOT_DIR, "sensitivity_P_intervals.png")
+    save_path = os.path.join(_plot_dir, "sensitivity_P_intervals.png")
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"  [图表已保存] {save_path}")
+    print(f"  [Plot saved] {save_path}")
 
 
-def plot_P_speed_cross(df: pd.DataFrame):
+def plot_P_speed_cross(df: pd.DataFrame, plot_dir: str = ""):
     """绘制 P_intervals × vehicle_speed 交叉项敏感性分析图。
 
     生成四面板综合图:
@@ -718,10 +778,11 @@ def plot_P_speed_cross(df: pd.DataFrame):
         print("  [跳过] 交叉项数据为空, 无法绘图")
         return
 
+    _plot_dir = plot_dir or RUN_PLOT_DIR
     P_vals = sorted(df["P_intervals"].unique())
     speed_vals = sorted(df["vehicle_speed_kmh"].unique())
 
-    # 数据透视
+    # Pivot data
     pivot_obj = df.pivot_table(values="objective", index="P_intervals",
                                columns="vehicle_speed_kmh", aggfunc="first")
     pivot_time = df.pivot_table(values="elapsed_seconds", index="P_intervals",
@@ -732,7 +793,7 @@ def plot_P_speed_cross(df: pd.DataFrame):
     markers_line = ["o", "s", "D"]
 
     # ------------------------------------------------------------------
-    # 左上: 总变现效用热力图
+    # Top-left: Total Utility heatmap
     # ------------------------------------------------------------------
     ax1 = axes[0, 0]
     obj_data = pivot_obj.loc[P_vals, speed_vals].values
@@ -741,9 +802,9 @@ def plot_P_speed_cross(df: pd.DataFrame):
     ax1.set_xticklabels(speed_vals)
     ax1.set_yticks(range(len(P_vals)))
     ax1.set_yticklabels(P_vals)
-    ax1.set_xlabel("车速 (km/h)", fontsize=12)
+    ax1.set_xlabel("speed (km/h)", fontsize=12)
     ax1.set_ylabel("P_intervals", fontsize=12)
-    ax1.set_title("总变现效用 (objective)", fontsize=13, fontweight="bold")
+    ax1.set_title("Total Utility (objective)", fontsize=13, fontweight="bold")
     vmax_obj = np.nanmax(obj_data)
     for i in range(len(P_vals)):
         for j in range(len(speed_vals)):
@@ -755,7 +816,7 @@ def plot_P_speed_cross(df: pd.DataFrame):
     fig.colorbar(im1, ax=ax1, shrink=0.85)
 
     # ------------------------------------------------------------------
-    # 右上: 求解耗时热力图
+    # Top-right: Solve Time heatmap
     # ------------------------------------------------------------------
     ax2 = axes[0, 1]
     time_data = pivot_time.loc[P_vals, speed_vals].values
@@ -764,9 +825,9 @@ def plot_P_speed_cross(df: pd.DataFrame):
     ax2.set_xticklabels(speed_vals)
     ax2.set_yticks(range(len(P_vals)))
     ax2.set_yticklabels(P_vals)
-    ax2.set_xlabel("车速 (km/h)", fontsize=12)
+    ax2.set_xlabel("Vehicle Speed (km/h)", fontsize=12)
     ax2.set_ylabel("P_intervals", fontsize=12)
-    ax2.set_title("求解耗时 (s)", fontsize=13, fontweight="bold")
+    ax2.set_title("Solve Time (s)", fontsize=13, fontweight="bold")
     for i in range(len(P_vals)):
         for j in range(len(speed_vals)):
             val = time_data[i, j]
@@ -776,7 +837,7 @@ def plot_P_speed_cross(df: pd.DataFrame):
     fig.colorbar(im2, ax=ax2, shrink=0.85)
 
     # ------------------------------------------------------------------
-    # 左下: 不同 P 下速度对目标函数影响的折线对比
+    # Bottom-left: Line comparison of speed vs. objective for different P
     # ------------------------------------------------------------------
     ax3 = axes[1, 0]
     for pi, p in enumerate(P_vals):
@@ -784,15 +845,15 @@ def plot_P_speed_cross(df: pd.DataFrame):
         ax3.plot(sub["vehicle_speed_kmh"], sub["objective"],
                  marker=markers_line[pi], color=colors_line[pi],
                  linewidth=2.2, markersize=8, label=f"P={p}")
-    ax3.set_xlabel("车速 (km/h)", fontsize=12)
-    ax3.set_ylabel("总变现效用 (objective)", fontsize=12)
-    ax3.set_title("不同 P 下速度对目标函数的影响", fontsize=13, fontweight="bold")
+    ax3.set_xlabel("Vehicle Speed (km/h)", fontsize=12)
+    ax3.set_ylabel("Total Utility (objective)", fontsize=12)
+    ax3.set_title("Impact of Speed on Objective for Different P", fontsize=13, fontweight="bold")
     ax3.legend(fontsize=11, framealpha=0.9)
     ax3.grid(True, alpha=0.3)
     ax3.set_xticks(speed_vals)
 
     # ------------------------------------------------------------------
-    # 右下: 不同 P 下速度对时序偏离度影响的折线对比
+    # Bottom-right: Line comparison of speed vs. Time_Gap for different P
     # ------------------------------------------------------------------
     ax4 = axes[1, 1]
     for pi, p in enumerate(P_vals):
@@ -803,25 +864,25 @@ def plot_P_speed_cross(df: pd.DataFrame):
                      sub.loc[valid, "Time_Gap"],
                      marker=markers_line[pi], color=colors_line[pi],
                      linewidth=2.2, markersize=8, label=f"P={p}")
-    ax4.set_xlabel("车速 (km/h)", fontsize=12)
-    ax4.set_ylabel("时序偏离度 Time_Gap (h)", fontsize=12)
-    ax4.set_title("不同 P 下速度对时序偏离度的影响", fontsize=13, fontweight="bold")
+    ax4.set_xlabel("Vehicle Speed (km/h)", fontsize=12)
+    ax4.set_ylabel("Temporal Deviation Time_Gap (h)", fontsize=12)
+    ax4.set_title("Impact of Speed on Temporal Deviation for Different P", fontsize=13, fontweight="bold")
     ax4.legend(fontsize=11, framealpha=0.9)
     ax4.grid(True, alpha=0.3)
     ax4.set_xticks(speed_vals)
     ax4.axhline(y=0, color='gray', linestyle=':', linewidth=1.0, alpha=0.7)
 
     # ------------------------------------------------------------------
-    # 总标题与保存
+    # Overall title and save
     # ------------------------------------------------------------------
-    fig.suptitle("交叉项敏感性分析: P_intervals × vehicle_speed",
+    fig.suptitle("Cross Sensitivity Analysis: P_intervals × vehicle_speed",
                  fontsize=16, fontweight="bold", y=1.01)
     fig.tight_layout()
 
-    save_path = os.path.join(PLOT_DIR, "sensitivity_P_speed_cross.png")
+    save_path = os.path.join(_plot_dir, "sensitivity_P_speed_cross.png")
     fig.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f"  [图表已保存] {save_path}")
+    print(f"  [Plot saved] {save_path}")
 
 
 # =========================================================================
@@ -851,12 +912,143 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=UserWarning)
     warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+    # =========================================================================
+    # CLI 参数解析 (对齐 3_Optimization/batch_runner.py 的接口模式)
+    # =========================================================================
+    parser = argparse.ArgumentParser(
+        description="ST-Graph 优化模型 — 敏感性分析脚本 (One-Factor Sweep)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py                                      # 使用默认时间
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --datetime "2025/10/28 14:00"        # 指定具体时间
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random                             # 随机选取可用小时
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random --seed 42                   # 随机选取 (固定种子)
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --list-hours                         # 列出可用小时
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --data path/to/other.csv             # 指定数据文件
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --skip-cross                         # 跳过交叉项扫描
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --only speed swap_time               # 仅运行指定扫描
+        """,
+    )
+    parser.add_argument(
+        "--data", type=str, default=DEFAULT_PREDICTION_FILE,
+        help=f"预测数据 CSV 文件路径 (默认: prediction_CB_Hurdle.csv)"
+    )
+    parser.add_argument(
+        "--datetime", type=str, default=None,
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/10/28 14:00')"
+    )
+    parser.add_argument(
+        "--random", action="store_true",
+        help="从可用小时中随机选取一个 (范围: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="配合 --random 使用, 固定随机种子"
+    )
+    parser.add_argument(
+        "--start", type=str, default=DATETIME_RANGE_START,
+        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+    )
+    parser.add_argument(
+        "--end", type=str, default=DATETIME_RANGE_END,
+        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+    )
+    parser.add_argument(
+        "--list-hours", action="store_true",
+        help="列出 CSV 中所有可用小时并退出"
+    )
+    parser.add_argument(
+        "--output", type=str, default=None,
+        help="输出根目录 (默认: 4_Sensitivity_Analysis/Results/<timestamp>/)"
+    )
+    parser.add_argument(
+        "--skip-cross", action="store_true",
+        help="跳过交叉项 (P_intervals × vehicle_speed) 联合扫描"
+    )
+    parser.add_argument(
+        "--only", nargs="+", default=None,
+        choices=["speed", "swap_time", "C_max", "P_intervals", "cross"],
+        help="仅运行指定的扫描项 (可多选)"
+    )
+
+    args = parser.parse_args()
+
+    # =========================================================================
+    # 模式 1: 列出所有可用小时 (对齐 Pre_Process 的 --list-hours 模式)
+    # =========================================================================
+    if args.list_hours:
+        hours = list_available_hours(
+            file_path=args.data,
+            start=args.start,
+            end=args.end,
+        )
+        print("=" * 60)
+        print(f"  文件: {args.data}")
+        print(f"  时间范围: {args.start} ~ {args.end}")
+        print(f"  可用小时数: {len(hours)}")
+        print("=" * 60)
+        for h in hours:
+            print(h.strftime("%Y/%m/%d %H:%M"))
+        exit(0)
+
+    # =========================================================================
+    # 确定目标日期时间 (对齐 batch_runner.py 的 --datetime / --random 模式)
+    # =========================================================================
+    if args.random:
+        TARGET_DATETIME = select_random_datetime(
+            file_path=args.data,
+            start=args.start,
+            end=args.end,
+            seed=args.seed,
+        )
+        print("=" * 60)
+        print("  [随机] 敏感性分析 — 随机选取模式")
+        if args.seed is not None:
+            print(f"  随机种子: {args.seed}")
+        print(f"  选择的目标时间: {TARGET_DATETIME}")
+        print("=" * 60)
+    elif args.datetime is not None:
+        TARGET_DATETIME = args.datetime
+        print("=" * 60)
+        print("  [指定] 敏感性分析 — 用户指定日期时间模式")
+        print(f"  选择的目标时间: {TARGET_DATETIME}")
+        print("=" * 60)
+    else:
+        print("=" * 60)
+        print("  [默认] 敏感性分析 — 默认日期时间模式")
+        print(f"  选择的目标时间: {TARGET_DATETIME}")
+        print("=" * 60)
+
+    DATA_FILE = args.data
+
+    # =========================================================================
+    # 创建本次运行的时间戳输出目录 (对齐 batch_runner.py 的 run_output_dir 模式)
+    # =========================================================================
+    RUN_TIMESTAMP = time.strftime("%Y%m%d_%H%M%S")
+    _output_root = args.output or OUTPUT_ROOT_DIR
+    RUN_OUTPUT_DIR = os.path.join(_output_root, RUN_TIMESTAMP)
+    RUN_PLOT_DIR = os.path.join(RUN_OUTPUT_DIR, "Plots")
+    os.makedirs(RUN_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(RUN_PLOT_DIR, exist_ok=True)
+
+    # 确定运行哪些扫描
+    if args.only:
+        run_scans = set(args.only)
+    else:
+        run_scans = {"speed", "swap_time", "C_max", "P_intervals", "cross"}
+    if args.skip_cross:
+        run_scans.discard("cross")
+
     print("=" * 70)
     print("  ST-Graph 优化模型 — 敏感性分析脚本")
     print(f"  数据文件: {DATA_FILE}")
-    print(f"  结果目录: {OUTPUT_DIR}")
-    print(f"  图表目录: {PLOT_DIR}")
+    print(f"  目标时间: {TARGET_DATETIME}")
+    print(f"  运行时间戳: {RUN_TIMESTAMP}")
+    print(f"  结果目录: {RUN_OUTPUT_DIR}")
+    print(f"  图表目录: {RUN_PLOT_DIR}")
     print(f"  求解时限: {FIXED_TIME_LIMIT_S}s (单次)")
+    print(f"  运行项目: {sorted(run_scans)}")
     print("=" * 70)
 
     all_results = {}
@@ -864,56 +1056,67 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # 1. 车速敏感性扫描
     # ------------------------------------------------------------------
-    print("\n" + "█" * 70)
-    print("  [阶段 1/4] 车速 (vehicle_speed_kmh) 敏感性扫描")
-    print("█" * 70)
-    df_speed = sweep_vehicle_speed()
-    all_results["vehicle_speed_kmh"] = df_speed
-    if df_speed is not None and not df_speed.empty:
-        plot_speed_sensitivity(df_speed)
+    if "speed" in run_scans:
+        print("\n" + "█" * 70)
+        print("  [阶段 1] 车速 (vehicle_speed_kmh) 敏感性扫描")
+        print("█" * 70)
+        df_speed = sweep_vehicle_speed(
+            output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
+        all_results["vehicle_speed_kmh"] = df_speed
+        if df_speed is not None and not df_speed.empty:
+            plot_speed_sensitivity(df_speed, plot_dir=RUN_PLOT_DIR)
+
     # ------------------------------------------------------------------
     # 2. 换电速率敏感性扫描
     # ------------------------------------------------------------------
-    print("\n" + "█" * 70)
-    print("  [阶段 2/4] 换电速率 (swap_rate) 敏感性扫描")
-    print("█" * 70)
-    df_swap = sweep_swap_time()
-    all_results["swap_rate"] = df_swap
-    if df_swap is not None and not df_swap.empty:
-        plot_swap_time_sensitivity(df_swap)
+    if "swap_time" in run_scans:
+        print("\n" + "█" * 70)
+        print("  [阶段 2] 换电速率 (swap_rate) 敏感性扫描")
+        print("█" * 70)
+        df_swap = sweep_swap_time(
+            output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
+        all_results["swap_rate"] = df_swap
+        if df_swap is not None and not df_swap.empty:
+            plot_swap_time_sensitivity(df_swap, plot_dir=RUN_PLOT_DIR)
 
     # ------------------------------------------------------------------
     # 3. 车载容量敏感性扫描
     # ------------------------------------------------------------------
-    print("\n" + "█" * 70)
-    print("  [阶段 3/4] 车载容量 (C_max) 敏感性扫描")
-    print("█" * 70)
-    df_cmax = sweep_C_max()
-    all_results["C_max"] = df_cmax
-    if df_cmax is not None and not df_cmax.empty:
-        plot_C_max_sensitivity(df_cmax)
+    if "C_max" in run_scans:
+        print("\n" + "█" * 70)
+        print("  [阶段 3] 车载容量 (C_max) 敏感性扫描")
+        print("█" * 70)
+        df_cmax = sweep_C_max(
+            output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
+        all_results["C_max"] = df_cmax
+        if df_cmax is not None and not df_cmax.empty:
+            plot_C_max_sensitivity(df_cmax, plot_dir=RUN_PLOT_DIR)
 
     # ------------------------------------------------------------------
     # 4. 时空离散段数敏感性扫描
     # ------------------------------------------------------------------
-    print("\n" + "█" * 70)
-    print("  [阶段 4/4] 时空离散段数 (P_intervals) 敏感性扫描")
-    print("█" * 70)
-    df_p = sweep_P_intervals()
-    all_results["P_intervals"] = df_p
-    if df_p is not None and not df_p.empty:
-        plot_P_intervals_sensitivity(df_p)
+    if "P_intervals" in run_scans:
+        print("\n" + "█" * 70)
+        print("  [阶段 4] 时空离散段数 (P_intervals) 敏感性扫描")
+        print("█" * 70)
+        df_p = sweep_P_intervals(
+            output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
+        all_results["P_intervals"] = df_p
+        if df_p is not None and not df_p.empty:
+            plot_P_intervals_sensitivity(df_p, plot_dir=RUN_PLOT_DIR)
 
     # ------------------------------------------------------------------
     # 5. 交叉项: P_intervals × vehicle_speed 联合扫描
     # ------------------------------------------------------------------
-    print("\n" + "█" * 70)
-    print("  [阶段 5/5] 交叉项 (P_intervals × vehicle_speed) 联合扫描")
-    print("█" * 70)
-    df_cross = sweep_P_speed_cross()
-    all_results["P_speed_cross"] = df_cross
-    if df_cross is not None and not df_cross.empty:
-        plot_P_speed_cross(df_cross)
+    if "cross" in run_scans:
+        print("\n" + "█" * 70)
+        print("  [阶段 5] 交叉项 (P_intervals × vehicle_speed) 联合扫描")
+        print("█" * 70)
+        df_cross = sweep_P_speed_cross(
+            output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
+        all_results["P_speed_cross"] = df_cross
+        if df_cross is not None and not df_cross.empty:
+            plot_P_speed_cross(df_cross, plot_dir=RUN_PLOT_DIR)
 
     # ------------------------------------------------------------------
     # 汇总输出
@@ -922,6 +1125,6 @@ if __name__ == "__main__":
 
     print(f"\n{'='*70}")
     print(f"  敏感性分析全部完成!")
-    print(f"  CSV 结果目录: {OUTPUT_DIR}")
-    print(f"  图表目录    : {PLOT_DIR}")
+    print(f"  CSV 结果目录: {RUN_OUTPUT_DIR}")
+    print(f"  图表目录    : {RUN_PLOT_DIR}")
     print(f"{'='*70}")
