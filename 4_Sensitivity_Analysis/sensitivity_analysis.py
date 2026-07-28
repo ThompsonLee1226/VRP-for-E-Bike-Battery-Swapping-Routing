@@ -888,12 +888,14 @@ def plot_P_speed_cross(df: pd.DataFrame, plot_dir: str = ""):
 # =========================================================================
 # 汇总对比表
 # =========================================================================
-def print_summary_table(all_dfs: dict):
-    """打印所有扫描的汇总对比表。"""
+def print_summary_table(all_dfs: dict, output_dir: str = ""):
+    """打印所有扫描的汇总对比表，并保存为 CSV。"""
     print(f"\n{'='*90}")
     print("  敏感性分析汇总")
     print(f"{'='*90}")
 
+    # 收集所有 DataFrame 合并为一个汇总表
+    summary_rows = []
     for var_name, df in all_dfs.items():
         if df is None or df.empty:
             print(f"\n  [{var_name}] 无有效数据")
@@ -903,6 +905,18 @@ def print_summary_table(all_dfs: dict):
                 "MIPGap", "Time_Gap", "status"]
         display_cols = [c for c in cols if c in df.columns]
         print(df[display_cols].to_string(index=False))
+        # 收集用于 CSV 导出的行
+        for _, row in df.iterrows():
+            row_data = {"variable": var_name}
+            for c in display_cols:
+                row_data[c] = row[c]
+            summary_rows.append(row_data)
+
+    # 保存为 CSV
+    if output_dir and summary_rows:
+        csv_path = os.path.join(output_dir, "sensitivity_analysis_summary.csv")
+        pd.DataFrame(summary_rows).to_csv(csv_path, index=False, encoding="utf-8-sig")
+        print(f"\n  [CSV saved] {csv_path}")
 
 
 # =========================================================================
@@ -1121,7 +1135,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # 汇总输出
     # ------------------------------------------------------------------
-    print_summary_table(all_results)
+    print_summary_table(all_results, output_dir=RUN_OUTPUT_DIR)
 
     print(f"\n{'='*70}")
     print(f"  敏感性分析全部完成!")
