@@ -10,7 +10,7 @@ import pandas as pd
 # ★ 选择目标日期时间: 格式 "YYYY/MM/DD HH:00"
 #    数据有效范围: 2025/10/23 12:00 ~ 2025/11/10 23:00 (445个可用小时)
 #    修改此处即可切换优化目标小时
-DEFAULT_TARGET_DATETIME = "2025/10/23 12:00"
+DEFAULT_TARGET_DATETIME = "2025/11/02 12:00"
 DATETIME_RANGE_START = "2025/10/23 12:00"
 DATETIME_RANGE_END   = "2025/11/10 23:00"
 
@@ -346,7 +346,7 @@ if __name__ == "__main__":
         epilog="""
 使用示例:
   python Pre_Process.py                                          # 使用默认时间 %s
-  python Pre_Process.py --datetime "2025/10/28 14:00"            # 指定具体时间
+  python Pre_Process.py --datetime "2025/11/02 12:00"            # 指定具体时间
   python Pre_Process.py --random                                 # 随机选取一个可用小时
   python Pre_Process.py --random --seed 42                       # 随机选取 (固定种子)
   python Pre_Process.py --list-hours                             # 列出所有可用小时
@@ -360,7 +360,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' 或 'YYYY/MM/DD HH:00' (例如 '2025/10/28 14:00')"
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' 或 'YYYY/MM/DD HH:00' (例如 '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",

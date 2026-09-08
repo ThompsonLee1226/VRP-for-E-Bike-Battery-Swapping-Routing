@@ -1,10 +1,10 @@
 """
 运行命令：
 
-# 默认时间 (2025/10/24 12:00)
+# 默认时间 (2025/11/02 12:00)
   python 3_Optimization/main_STGraph.py
   # 指定具体小时
-  python 3_Optimization/main_STGraph.py --datetime "2025/10/29 14:00"
+  python 3_Optimization/main_STGraph.py --datetime "2025/11/02 12:00"
 
   # 随机选取
   python 3_Optimization/main_STGraph.py --random
@@ -547,7 +547,7 @@ if __name__ == "__main__":
         epilog="""
 使用示例:
   python main_STGraph.py                                                 # 使用默认时间
-  python main_STGraph.py --datetime "2025/10/28 14:00"                   # 指定具体时间
+  python main_STGraph.py --datetime "2025/11/02 12:00"                   # 指定具体时间
   python main_STGraph.py --random                                        # 随机选取可用小时
   python main_STGraph.py --random --seed 42                              # 随机选取 (固定种子)
   python main_STGraph.py --list-hours                                    # 列出可用小时
@@ -560,7 +560,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/10/28 14:00')"
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",

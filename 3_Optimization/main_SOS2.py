@@ -598,7 +598,7 @@ if __name__ == "__main__":
         epilog="""
 使用示例:
   python main_SOS2.py                                                     # 使用默认时间
-  python main_SOS2.py --datetime "2025/10/28 14:00"                       # 指定具体时间
+  python main_SOS2.py --datetime "2025/11/02 12:00"                       # 指定具体时间
   python main_SOS2.py --random                                            # 随机选取可用小时
   python main_SOS2.py --random --seed 42                                  # 随机选取 (固定种子)
   python main_SOS2.py --list-hours                                        # 列出可用小时
@@ -611,7 +611,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/10/28 14:00')"
+        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",
