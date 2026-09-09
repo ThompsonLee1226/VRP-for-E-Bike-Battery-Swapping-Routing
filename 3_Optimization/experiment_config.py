@@ -298,6 +298,37 @@ EXPERIMENT_GROUPS = {
         "description": "Classical baseline — Delta + MCF flow + Lazy MTZ callback",
         "academic_role": "Classical Baseline",
     },
+
+    # =========================================================================
+    # M6 — 元启发式基线 (Meta-heuristic Baseline)
+    # =========================================================================
+    "M6": {
+        "id": "M6",
+        "name_cn": "贪心+2-opt元启发式",
+        "name_en": "Greedy+2-opt (Meta-heuristic)",
+        "main_file": "main_heuristic.py",
+        "optimizer": "run_heuristic",
+        "P_intervals": 12,
+        "mip_gap": None,               # 无 MIP gap (启发式)
+        "method": 2,
+        "mip_focus": 0,
+        "cuts": 1,
+        "heuristics": 0.10,
+        "symmetry": 0,
+        "no_rel_heur_time": 15,
+        "pre_dual": 0,
+        "pre_passes": 8,
+        "node_method": 1,
+        "improve_start_time": 0,
+        "bar_homogeneous": 1,
+        "threads": 8,
+        # 空间剪枝
+        "geo_fencing": True,
+        "knn_enabled": True,
+        "K_neighbors": 50,
+        "description": "Meta-heuristic baseline — greedy nearest-neighbor + 2-opt local search",
+        "academic_role": "Meta-heuristic Baseline",
+    },
 }
 
 
@@ -374,10 +405,10 @@ if __name__ == "__main__":
     import pandas as pd
     df = pd.DataFrame(list_experiments())
     print("=" * 100)
-    print("实验组配置总览 (Experiment Group Configuration Overview)")
+    print("Experiment Group Configuration Overview")
     print("=" * 100)
     print(df.to_string(index=False))
     print()
-    print("共享参数 (SHARED_PARAMS):")
+    print("Shared parameters (SHARED_PARAMS):")
     for k, v in SHARED_PARAMS.items():
         print(f"  {k}: {v}")

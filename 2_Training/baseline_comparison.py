@@ -254,7 +254,7 @@ def time_split(df, y_raw):
     valid_time = pd.to_datetime(df.loc[valid_idx, 'datetime'], errors='coerce').dropna()
     train_range = f"{train_time.min()} -> {train_time.max()}"
     valid_range = f"{valid_time.min()} -> {valid_time.max()}"
-    print(f"  时间切分: train[{train_range}], valid[{valid_range}], "
+    print(f"  Time split: train[{train_range}], valid[{valid_range}], "
           f"train={len(train_idx)}, valid={len(valid_idx)}")
 
     return X_train, X_valid, y_train, y_valid, train_range, valid_range
@@ -452,7 +452,7 @@ def save_model_predictions(
     safe_name = model_name.replace(' ', '_').replace('/', '_')
     out_path = os.path.join(output_dir, f'prediction_{safe_name}.csv')
     result_df.to_csv(out_path, index=False)
-    print(f"  [{model_name}] 预测集已保存至: {out_path}")
+    print(f"  [{model_name}] predictions saved to: {out_path}")
     return out_path
 
 
@@ -906,23 +906,23 @@ def train_cb_hurdle(
 # ── 主流程 ────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='四种架构基准对比：全部模型从零训练，统一数据划分')
-    parser.add_argument('--train_csv', required=True, help='训练集CSV')
-    parser.add_argument('--test_csv', required=True, help='测试集CSV')
+    parser = argparse.ArgumentParser(description='Benchmark comparison of four architectures: all models trained from scratch with a unified data split')
+    parser.add_argument('--train_csv', required=True, help='Training set CSV')
+    parser.add_argument('--test_csv', required=True, help='Test set CSV')
     parser.add_argument('--output_dir', default=None,
-                        help='输出目录（默认自动生成 Training_Results/{YYYYMMDD_HHMMSS}）')
+                        help='Output directory (auto-generated as Training_Results/{YYYYMMDD_HHMMSS} by default)')
     args = parser.parse_args()
 
     if args.output_dir is None:
         run_timestamp = time.strftime('%Y%m%d_%H%M%S')
         args.output_dir = os.path.join(SCRIPT_DIR, 'Training_Results', run_timestamp)
-        print(f"自动生成输出目录: {args.output_dir}")
+        print(f"Auto-generated output directory: {args.output_dir}")
 
     os.makedirs(args.output_dir, exist_ok=True)
 
     # ── 1. 加载并预处理数据 ──
     print("=" * 60)
-    print("[1/7] 加载数据...")
+    print("[1/7] Loading data...")
     df_train = pd.read_csv(args.train_csv)
     df_test_raw = pd.read_csv(args.test_csv)  # 保留原始副本，用于 Grid_Utility 格式输出
     df_test = df_test_raw.copy()
@@ -934,11 +934,11 @@ def main():
             df['h3'] = df['h3'].astype(str)
         fill_missing_values(df)
         df = add_feature_engineering(df)  # add_feature_engineering 内部有 .copy()，必须接收返回值
-        print(f"  {name}集: {df.shape}")
+        print(f"  {name} set: {df.shape}")
         return df
 
-    df_train = preprocess(df_train, '训练')
-    df_test = preprocess(df_test, '测试')
+    df_train = preprocess(df_train, 'Train')
+    df_test = preprocess(df_test, 'Test')
 
     comparison_rows: List[Dict] = []
     model_predictions: Dict[str, Dict[str, np.ndarray]] = {}  # {model_name: {target: y_pred_array}}
@@ -946,16 +946,16 @@ def main():
     rf_h3_mapping: Dict[str, dict] = {}  # {target: h3_mapping} — 训练集编码，测试时复用
 
     # ── 2. 训练CatBoost（单阶段Poisson回归）──
-    print("\n[2/6] 训练 CatBoost...")
+    print("\n[2/6] Training CatBoost...")
     for target in TARGETS:
-        print(f"\n  CatBoost — 目标: {target}")
+        print(f"\n  CatBoost — target: {target}")
         y_raw = df_train[target].astype(float)
         X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
 
         model, info = train_catboost(X_train, y_train, X_valid, y_valid)
         model_objects.setdefault('CatBoost', {})[target] = model
 
-        print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
+        print(f"    Validation set: Poisson={info['valid_poisson']:.4f}, "
               f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
 
         comparison_rows.append({
@@ -971,32 +971,32 @@ def main():
         })
 
     # ── 3. 训练CatBoost Hurdle（两阶段零膨胀模型）──
-    print("\n[3/6] 训练 CatBoost Hurdle...")
+    print("\n[3/6] Training CatBoost Hurdle...")
     for target in TARGETS:
-        print(f"\n  CatBoost Hurdle — 目标: {target}")
+        print(f"\n  CatBoost Hurdle — target: {target}")
         y_raw = df_train[target].astype(float)
         X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
 
         model_dict, info = train_cb_hurdle(X_train, y_train, X_valid, y_valid)
         model_objects.setdefault('CB_Hurdle', {})[target] = model_dict
 
-        print(f"    验证集: Poisson(soft)={info['valid_poisson_soft']:.4f}, "
+        print(f"    Validation set: Poisson(soft)={info['valid_poisson_soft']:.4f}, "
               f"Poisson(hard)={info['valid_poisson']:.4f}, "
               f"MAE={info['valid_mae']:.4f}, best_iter={info['best_iteration']}, "
               f"τ_peak={info.get('segment_threshold_peak', 'N/A')}, "
               f"τ_shoulder={info.get('segment_threshold_shoulder', 'N/A')}, "
               f"τ_night={info.get('segment_threshold_night', 'N/A')}")
-        print(f"    阈值优化 [{info.get('hurdle_threshold_strategy', 'N/A')}]: "
+        print(f"    Threshold optimization [{info.get('hurdle_threshold_strategy', 'N/A')}]: "
               f"τ_Poisson={info['hurdle_threshold_poisson']:.2f}, "
               f"τ_F1={info['hurdle_threshold_f1']:.2f}")
-        print(f"    时段结果: "
+        print(f"    Segment results: "
               f"peak(F1={info.get('segment_f1_peak', 'N/A')}, n={info.get('segment_n_peak', 'N/A')})  "
               f"shoulder(F1={info.get('segment_f1_shoulder', 'N/A')}, n={info.get('segment_n_shoulder', 'N/A')})  "
-              f"night(F1={info.get('segment_f1_night', 'N/A')}, 零召回={info.get('segment_zero_recall_night', 'N/A')}, n={info.get('segment_n_night', 'N/A')})")
-        print(f"    全体验证: F1={info.get('valid_zero_f1_used', 'N/A')}, "
-              f"零召回={info.get('valid_zero_f1_used', 'N/A')}, "
-              f"真零比={info['valid_true_zero_ratio']:.2%}, "
-              f"预测零比={info['valid_pred_zero_ratio_used']:.2%}")
+              f"night(F1={info.get('segment_f1_night', 'N/A')}, zero recall={info.get('segment_zero_recall_night', 'N/A')}, n={info.get('segment_n_night', 'N/A')})")
+        print(f"    Overall validation: F1={info.get('valid_zero_f1_used', 'N/A')}, "
+              f"zero recall={info.get('valid_zero_f1_used', 'N/A')}, "
+              f"true-zero ratio={info['valid_true_zero_ratio']:.2%}, "
+              f"pred-zero ratio={info['valid_pred_zero_ratio_used']:.2%}")
 
         comparison_rows.append({
             'model': 'CB Hurdle',
@@ -1011,9 +1011,9 @@ def main():
         })
 
     # ── 4. 训练LightGBM ──
-    print("\n[4/6] 训练 LightGBM...")
+    print("\n[4/6] Training LightGBM...")
     for target in TARGETS:
-        print(f"\n  LightGBM — 目标: {target}")
+        print(f"\n  LightGBM — target: {target}")
         y_raw = df_train[target].astype(float)
         X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
 
@@ -1031,13 +1031,13 @@ def main():
             'valid_mae': info['valid_mae'],
             'notes': f'train={len(X_train)}, valid={len(X_valid)}',
         })
-        print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
+        print(f"    Validation set: Poisson={info['valid_poisson']:.4f}, "
               f"RMSE={info['valid_rmse']:.4f}, best_iter={info['best_iteration']}")
 
     # ── 6. 训练Random Forest ──
-    print("\n[5/6] 训练 Random Forest...")
+    print("\n[5/6] Training Random Forest...")
     for target in TARGETS:
-        print(f"\n  Random Forest — 目标: {target}")
+        print(f"\n  Random Forest — target: {target}")
         y_raw = df_train[target].astype(float)
         X_train, X_valid, y_train, y_valid, train_range, valid_range = time_split(df_train, y_raw)
 
@@ -1056,11 +1056,11 @@ def main():
             'valid_mae': info['valid_mae'],
             'notes': f'train={len(X_train)}, valid={len(X_valid)}',
         })
-        print(f"    验证集: Poisson={info['valid_poisson']:.4f}, "
-              f"RMSE={info['valid_rmse']:.4f}, 耗时={info['training_seconds']}s")
+        print(f"    Validation set: Poisson={info['valid_poisson']:.4f}, "
+              f"RMSE={info['valid_rmse']:.4f}, elapsed={info['training_seconds']}s")
 
     # ── 7. 测试集预测与汇总 ──
-    print("\n[6/6] 测试集预测与汇总...")
+    print("\n[6/6] Test set prediction & summary...")
 
     # 构建测试集预测DataFrame（合并文件）
     pred_df = df_test[['h3', 'datetime']].copy() if 'datetime' in df_test.columns else df_test[['h3']].copy()
@@ -1134,8 +1134,8 @@ def main():
 
         # ── 全局指标 + 零膨胀指标 ──
         print(f"\n{'='*60}")
-        print(f"  测试集指标 — {target}")
-        print(f"  真实零值占比: {(y_test <= 1e-6).mean():.2%}")
+        print(f"  Test set metrics — {target}")
+        print(f"  True zero ratio: {(y_test <= 1e-6).mean():.2%}")
         print(f"{'='*60}")
 
         model_col_map = {
@@ -1154,8 +1154,8 @@ def main():
                 print(f"\n  ┌─ {model_label}")
                 print(f"  │  Poisson={m['Poisson']:.4f}  RMSE={m['RMSE']:.4f}  MAE={m['MAE']:.4f}")
                 # 零膨胀指标
-                print(f"  │  --- 零膨胀分解 ---")
-                print(f"  │  预测零值比: {zi['zero_ratio_pred']:.2%}  (真实: {zi['zero_ratio_true']:.2%})  gap: {zi['zero_ratio_gap']:.4f}")
+                print(f"  │  --- Zero-inflated decomposition ---")
+                print(f"  │  Pred zero ratio: {zi['zero_ratio_pred']:.2%}  (true: {zi['zero_ratio_true']:.2%})  gap: {zi['zero_ratio_gap']:.4f}")
                 print(f"  │  Zero Recall={zi['zero_recall']:.4f}  Precision={zi['zero_precision']:.4f}  F1={zi['zero_f1']:.4f}")
                 print(f"  │  RMSE_on_zero={zi['rmse_on_zero']:.4f}  RMSE_on_pos={zi['rmse_on_positive']:.4f}")
                 print(f"  │  Poisson_on_zero={zi['poisson_on_zero']:.4f}  Poisson_on_pos={zi['poisson_on_positive']:.4f}")
@@ -1178,17 +1178,17 @@ def main():
             di = compute_decision_impact_metrics(y_test, y_hurdle, 'CB_Hurdle',
                                                   y_pred_baseline=y_baseline,
                                                   baseline_name='CatBoost')
-            print(f"\n  ┌─ 🔧 决策影响指标 (CB_Hurdle)")
-            print(f"  │  Wasted Visit Rate (假阳性→浪费访问):    {di['wasted_visit_rate']:.2%}")
-            print(f"  │  Missed Demand Rate (假阴性→漏服务):     {di['missed_demand_rate']:.2%}")
-            print(f"  │  Total Demand Bias (需求总量偏差):        {di['total_demand_bias']:+.2%}")
-            print(f"  │  MAPZ (零样本平均浪费预测):               {di['mapz']:.4f}")
+            print(f"\n  ┌─ 🔧 Decision impact metrics (CB_Hurdle)")
+            print(f"  │  Wasted Visit Rate (false positive → wasted visit):    {di['wasted_visit_rate']:.2%}")
+            print(f"  │  Missed Demand Rate (false negative → missed service):     {di['missed_demand_rate']:.2%}")
+            print(f"  │  Total Demand Bias (total demand bias):        {di['total_demand_bias']:+.2%}")
+            print(f"  │  MAPZ (mean wasted prediction on zero samples):               {di['mapz']:.4f}")
             if 'mcnemar_pvalue' in di and not np.isnan(di['mcnemar_pvalue']):
                 print(f"  │  McNemar vs CatBoost: stat={di['mcnemar_stat']:.2f}, "
                       f"p={di['mcnemar_pvalue']:.6f}  "
-                      f"({'***显著' if di['mcnemar_pvalue'] < 0.001 else '**较显著' if di['mcnemar_pvalue'] < 0.01 else '*弱显著' if di['mcnemar_pvalue'] < 0.05 else '不显著'})")
-                print(f"  └─ (CB对Baseline错: {di.get('mcnemar_b','?')} vs "
-                      f"Baseline对CB错: {di.get('mcnemar_c','?')})")
+                      f"({'*** significant' if di['mcnemar_pvalue'] < 0.001 else '** moderately significant' if di['mcnemar_pvalue'] < 0.01 else '* weakly significant' if di['mcnemar_pvalue'] < 0.05 else 'not significant'})")
+                print(f"  └─ (CB correct, Baseline wrong: {di.get('mcnemar_b','?')} vs "
+                      f"Baseline correct, CB wrong: {di.get('mcnemar_c','?')})")
             # 附加到零膨胀指标
             for row in zi_metrics_rows:
                 if row['model'] == 'CB Hurdle' and row['target'] == target:
@@ -1225,7 +1225,7 @@ def main():
                 'CB_Regressor_Only': regressor_only_pred,
             }
 
-            print(f"\n  ═══ P0.1 消融实验 — {target} ═══")
+            print(f"\n  ═══ P0.1 Ablation study — {target} ═══")
             for variant_name, y_pred_abl in ablation_variants.items():
                 m_abl = compute_metrics(y_test, y_pred_abl)
                 zi_abl = compute_zero_inflated_metrics(y_test, y_pred_abl)
@@ -1265,10 +1265,10 @@ def main():
     # ── 保存合并预测文件 ──
     pred_path = os.path.join(args.output_dir, 'baseline_test_predictions.csv')
     pred_df.to_csv(pred_path, index=False)
-    print(f"\n  合并测试集预测已保存至: {pred_path}")
+    print(f"\n  Merged test-set predictions saved to: {pred_path}")
 
     # ── 分别保存各模型的独立预测集（Grid_Utility 格式）──
-    print(f"\n  保存各模型独立预测集（Grid_Utility 格式）...")
+    print(f"\n  Saving per-model prediction sets (Grid_Utility format)...")
     # 主模型 + 消融变体
     all_model_names = ['CatBoost', 'CB_Hurdle', 'LightGBM', 'RandomForest',
                        'CB_Hurdle_no_τ', 'CB_Classifier_Only', 'CB_Regressor_Only']
@@ -1282,13 +1282,13 @@ def main():
                 output_dir=args.output_dir,
             )
         else:
-            print(f"  [{model_name}] 跳过：无可用预测结果。")
+            print(f"  [{model_name}] Skipped: no predictions available.")
 
     # ── 保存零膨胀指标文件 ──
     zi_path = os.path.join(args.output_dir, 'baseline_zero_inflation_metrics.csv')
     zi_df = pd.DataFrame(zi_metrics_rows)
     zi_df.to_csv(zi_path, index=False)
-    print(f"\n  零膨胀专项指标已保存至: {zi_path}")
+    print(f"\n  Zero-inflation metrics saved to: {zi_path}")
 
     # ── 保存决策影响指标文件 ──
     di_path = os.path.join(args.output_dir, 'baseline_decision_impact_metrics.csv')
@@ -1296,7 +1296,7 @@ def main():
     if di_cols:
         di_df = zi_df[['model', 'target'] + di_cols].dropna(subset=di_cols, how='all')
         di_df.to_csv(di_path, index=False)
-        print(f"  决策影响指标已保存至: {di_path}")
+        print(f"  Decision impact metrics saved to: {di_path}")
 
     # 构建对比文件
     comp_df = pd.DataFrame(comparison_rows)
@@ -1328,7 +1328,7 @@ def main():
 
     comp_path = os.path.join(args.output_dir, 'baseline_comparison.csv')
     comp_df.to_csv(comp_path, index=False)
-    print(f"  模型对比表已保存至: {comp_path}")
+    print(f"  Model comparison table saved to: {comp_path}")
 
     # ══════════════════════════════════════════════════════════════════════
     # 测试集排面对比：正面展示 CB_Hurdle 在零膨胀场景下的优势
@@ -1337,7 +1337,7 @@ def main():
     if not zi_df.empty:
         print("\n")
         print("╔" + "═" * 78 + "╗")
-        print("║" + "  测试集模型排面对比".center(70) + "║")
+        print("║" + "  Test Set Model Ranking Comparison".center(70) + "║")
         print("╚" + "═" * 78 + "╝")
 
         for target in TARGETS:
@@ -1348,23 +1348,23 @@ def main():
             true_zero = sub['zi_zero_ratio_true'].iloc[0]
 
             print(f"\n{'─' * 80}")
-            print(f"  ◆ 目标: {target}  │  真实零值占比: {true_zero:.2%}")
+            print(f"  ◆ Target: {target}  │  True zero ratio: {true_zero:.2%}")
             print(f"{'─' * 80}")
 
             # ── 表1: 全局回归指标 ──
-            print(f"\n  📊 全局回归指标 (越低越好)")
+            print(f"\n  📊 Global regression metrics (lower is better)")
             print(f"  {'Model':<18s} {'Poisson':>10s} {'RMSE':>10s} {'MAE':>10s}")
             print(f"  {'─' * 18} {'─' * 10} {'─' * 10} {'─' * 10}")
             sub_sorted = sub.sort_values('test_Poisson')
             best_poi = sub_sorted['test_Poisson'].iloc[0]
             for _, r in sub_sorted.iterrows():
                 poi, rmse, mae = r['test_Poisson'], r['test_RMSE'], r['test_MAE']
-                flag = "  ← 最优" if poi == best_poi else ""
+                flag = "  ← best" if poi == best_poi else ""
                 print(f"  {r['model']:<18s} {poi:>10.4f} {rmse:>10.4f} {mae:>10.4f}{flag}")
 
             # ── 表2: 零值检测能力 ──
-            print(f"\n  🎯 零值检测能力 (Zero F1 = 召回×精确的调和平均)")
-            print(f"  {'Model':<18s} {'Zero Recall':>12s} {'Zero Prec':>12s} {'Zero F1':>12s} {'零比Gap':>10s}")
+            print(f"\n  🎯 Zero-value detection capability (Zero F1 = harmonic mean of recall × precision)")
+            print(f"  {'Model':<18s} {'Zero Recall':>12s} {'Zero Prec':>12s} {'Zero F1':>12s} {'Zero-Gap':>10s}")
             print(f"  {'─' * 18} {'─' * 12} {'─' * 12} {'─' * 12} {'─' * 10}")
             sub_sorted_f1 = sub.sort_values('zi_zero_f1', ascending=False)
             best_f1 = sub_sorted_f1['zi_zero_f1'].iloc[0]
@@ -1373,14 +1373,14 @@ def main():
                 prec = r['zi_zero_precision']
                 f1 = r['zi_zero_f1']
                 gap = r['zi_zero_ratio_gap']
-                flag = "  ← 最优" if f1 == best_f1 else ""
+                flag = "  ← best" if f1 == best_f1 else ""
                 recall_str = f"{recall:.4f}" if not np.isnan(recall) else "N/A"
                 prec_str = f"{prec:.4f}" if not np.isnan(prec) else "N/A"
                 f1_str = f"{f1:.4f}" if not np.isnan(f1) else "N/A"
                 print(f"  {r['model']:<18s} {recall_str:>12s} {prec_str:>12s} {f1_str:>12s} {gap:>10.4f}{flag}")
 
             # ── 表3: 条件误差分解 ──
-            print(f"\n  🔬 条件误差分解 (按真实值是否为0拆分)")
+            print(f"\n  🔬 Conditional error decomposition (split by whether the true value is zero)")
             print(f"  {'Model':<18s} {'RMSE on 0':>10s} {'RMSE on >0':>12s} {'MAE on 0':>10s} {'MAE on >0':>12s}")
             print(f"  {'─' * 18} {'─' * 10} {'─' * 12} {'─' * 10} {'─' * 12}")
             sub_sorted_rmse0 = sub.sort_values('zi_rmse_on_zero')
@@ -1391,9 +1391,9 @@ def main():
                 mae0, mae_pos = r['zi_mae_on_zero'], r['zi_mae_on_positive']
                 flags = []
                 if rmse0 == best_rmse0:
-                    flags.append("RMSE₀最优")
+                    flags.append("RMSE₀ best")
                 if mae0 == best_mae0:
-                    flags.append("MAE₀最优")
+                    flags.append("MAE₀ best")
                 flag_str = "  ← " + ", ".join(flags) if flags else ""
                 print(f"  {r['model']:<18s} {rmse0:>10.4f} {rmse_pos:>12.4f} {mae0:>10.4f} {mae_pos:>12.4f}{flag_str}")
 
@@ -1404,7 +1404,7 @@ def main():
             #   np.digitize 导致 Q1 桶为空。pd.qcut 的 duplicates='drop'
             #   自动合并重复边界，保证每个桶都有数据。
             if 'rent_mean_7d' in df_test.columns:
-                print(f"\n  🔭 按历史零值率分桶误差 (rent_mean_7d越低→零值率越高, CB_Hurdle优势应在此区间递增)")
+                print(f"\n  🔭 Bucket error by historical zero-value rate (lower rent_mean_7d → higher zero rate; CB_Hurdle advantage should grow in this range)")
                 zero_proxy = df_test['rent_mean_7d'].values
                 y_test_report = df_test[target].astype(float).values
                 # P0.2: 使用 pd.qcut 动态处理重复分位数边界
@@ -1415,17 +1415,17 @@ def main():
                 n_buckets = bucket_idx.max() + 1
                 # 动态标签
                 if n_buckets == 5:
-                    bucket_labels = ['Q1(极低需求)', 'Q2(低需求)', 'Q3(中需求)', 'Q4(较高需求)', 'Q5(高需求)']
+                    bucket_labels = ['Q1(very low demand)', 'Q2(low demand)', 'Q3(medium demand)', 'Q4(high demand)', 'Q5(very high demand)']
                 elif n_buckets == 4:
-                    bucket_labels = ['Q1(极低需求)', 'Q2(低需求)', 'Q3(中需求)', 'Q4(高需求)']
+                    bucket_labels = ['Q1(very low demand)', 'Q2(low demand)', 'Q3(medium demand)', 'Q4(high demand)']
                 elif n_buckets == 3:
-                    bucket_labels = ['Q1(低需求)', 'Q2(中需求)', 'Q3(高需求)']
+                    bucket_labels = ['Q1(low demand)', 'Q2(medium demand)', 'Q3(high demand)']
                 else:
                     bucket_labels = [f'Bucket{i+1}' for i in range(n_buckets)]
                 # 计算每桶各模型的 rmse 和零值率
-                print(f"  {'Bucket':<20s} {'真零率':>8s} "
+                print(f"  {'Bucket':<20s} {'ZeroRate':>8s} "
                       f"{'CB_H_RMSE':>10s} {'CB_RMSE':>10s} {'RF_RMSE':>10s} "
-                      f"{'Hurdle优势(vsCB)':>16s}")
+                      f"{'HurdleAdv(vsCB)':>16s}")
                 print(f"  {'─' * 20} {'─' * 8} {'─' * 10} {'─' * 10} {'─' * 10} {'─' * 16}")
                 for b_idx in range(n_buckets):
                     mask_b = bucket_idx == b_idx
@@ -1450,7 +1450,7 @@ def main():
 
             # ── 综合结论 ──
         print(f"\n{'═' * 80}")
-        print(f"  📋 综合结论")
+        print(f"  📋 Overall Conclusion")
         print(f"{'═' * 80}")
 
         for target in TARGETS:
@@ -1468,47 +1468,47 @@ def main():
             best_other_f1 = others['zi_zero_f1'].max()
             best_other_rmse0 = others['zi_rmse_on_zero'].min()
 
-            print(f"\n  [{target}] CB Hurdle vs 其他模型中最好者:")
+            print(f"\n  [{target}] CB Hurdle vs best of other models:")
             print(f"    Zero F1:         {h['zi_zero_f1']:.4f}  vs  {best_other_f1:.4f}  "
-                  f"(提升 {h['zi_zero_f1'] - best_other_f1:+.4f})")
+                  f"(improvement {h['zi_zero_f1'] - best_other_f1:+.4f})")
             print(f"    RMSE on Zero:    {h['zi_rmse_on_zero']:.4f}  vs  {best_other_rmse0:.4f}  "
-                  f"(降低 {h['zi_rmse_on_zero'] - best_other_rmse0:+.4f})")
+                  f"(reduction {h['zi_rmse_on_zero'] - best_other_rmse0:+.4f})")
 
             # 决策影响指标
             di_wvr = h.get('di_wasted_visit_rate', np.nan)
             di_tdb = h.get('di_total_demand_bias', np.nan)
             di_mcnemar_p = h.get('di_mcnemar_pvalue', np.nan)
             if not np.isnan(di_wvr):
-                print(f"    🔧 Wasted Visit Rate (假阳性→浪费访问):  {di_wvr:.2%}")
+                print(f"    🔧 Wasted Visit Rate (false positive → wasted visit):  {di_wvr:.2%}")
             if not np.isnan(di_tdb):
-                print(f"    🔧 Total Demand Bias (需求总量偏差):     {di_tdb:+.2%}")
+                print(f"    🔧 Total Demand Bias (total demand bias):     {di_tdb:+.2%}")
             if not np.isnan(di_mcnemar_p):
                 significance = '***' if di_mcnemar_p < 0.001 else '**' if di_mcnemar_p < 0.01 else '*' if di_mcnemar_p < 0.05 else 'n.s.'
-                print(f"    🔧 McNemar检验 vs CatBoost: p={di_mcnemar_p:.6f} ({significance})")
+                print(f"    🔧 McNemar test vs CatBoost: p={di_mcnemar_p:.6f} ({significance})")
 
             # 关键诊断
             cb_recall = h['zi_zero_recall']
             if not np.isnan(cb_recall) and cb_recall > 0.3:
-                print(f"    ✅ CB_Hurdle 成功识别了 {cb_recall:.1%} 的真实零需求样本")
+                print(f"    ✅ CB_Hurdle correctly identified {cb_recall:.1%} of true zero-demand samples")
                 gap = h['zi_zero_ratio_gap']
                 if gap < 0.05:
-                    print(f"    ✅ 预测零值比例与真实零值比例仅差 {gap:.2%}，分布匹配优秀")
+                    print(f"    ✅ Predicted vs true zero ratios differ by only {gap:.2%}; excellent distribution match")
             else:
-                print(f"    ⚠️  零值召回率偏低 ({cb_recall:.2%})，考虑检查分类器特征或阈值")
+                print(f"    ⚠️  Zero recall is low ({cb_recall:.2%}); consider checking classifier features or threshold")
 
         # ── P0.1 消融实验汇总：量化 Hurdle 各组件的边际贡献 ──
         ablation_models = ['CB_Hurdle', 'CB_Hurdle_no_τ', 'CB_Classifier_Only', 'CB_Regressor_Only']
         ablation_sub = zi_df[zi_df['model'].isin(ablation_models)]
         if not ablation_sub.empty:
             print(f"\n{'═' * 80}")
-            print(f"  🔬 P0.1 消融实验: Hurdle 各组件边际贡献")
+            print(f"  🔬 P0.1 Ablation study: marginal contribution of Hurdle components")
             print(f"{'═' * 80}")
             for target in TARGETS:
                 abl = ablation_sub[ablation_sub['target'] == target]
                 if abl.empty:
                     continue
-                print(f"\n  ◆ 目标: {target}")
-                print(f"  {'变体':<22s} {'Poisson':>8s} {'RMSE':>8s} {'MAE':>8s} "
+                print(f"\n  ◆ Target: {target}")
+                print(f"  {'Variant':<22s} {'Poisson':>8s} {'RMSE':>8s} {'MAE':>8s} "
                       f"{'Zero F1':>8s} {'WVR':>8s} {'TDB':>8s}")
                 print(f"  {'─' * 22} {'─' * 8} {'─' * 8} {'─' * 8} {'─' * 8} {'─' * 8} {'─' * 8}")
 
@@ -1528,7 +1528,7 @@ def main():
                           f"{v.get('di_total_demand_bias', np.nan):>7.1%}")
 
                 # 量化边际贡献
-                print(f"\n  📊 边际贡献分析 (以 CB_Hurdle 完整版为基线):")
+                print(f"\n  📊 Marginal contribution analysis (baseline = full CB_Hurdle):")
                 full = abl[abl['model'] == 'CB_Hurdle']
                 no_tau = abl[abl['model'] == 'CB_Hurdle_no_τ']
                 cls_only = abl[abl['model'] == 'CB_Classifier_Only']
@@ -1537,19 +1537,19 @@ def main():
                 if not full.empty and not no_tau.empty:
                     f1_diff = full.iloc[0]['zi_zero_f1'] - no_tau.iloc[0]['zi_zero_f1']
                     wvr_diff = full.iloc[0]['di_wasted_visit_rate'] - no_tau.iloc[0]['di_wasted_visit_rate']
-                    print(f"    三段式阈值优化:   ΔZero F1 = {f1_diff:+.4f}  |  ΔWVR = {wvr_diff:+.2%}")
+                    print(f"    Three-segment threshold optimization:   ΔZero F1 = {f1_diff:+.4f}  |  ΔWVR = {wvr_diff:+.2%}")
                 if not full.empty and not cls_only.empty:
                     f1_diff = full.iloc[0]['zi_zero_f1'] - cls_only.iloc[0]['zi_zero_f1']
                     mae_diff = full.iloc[0]['test_MAE'] - cls_only.iloc[0]['test_MAE']
-                    print(f"    回归器 (vs只用分类器): ΔZero F1 = {f1_diff:+.4f}  |  ΔMAE = {mae_diff:+.4f}")
+                    print(f"    Regressor (vs classifier-only): ΔZero F1 = {f1_diff:+.4f}  |  ΔMAE = {mae_diff:+.4f}")
                 if not full.empty and not reg_only.empty:
                     f1_full = full.iloc[0]['zi_zero_f1']
                     f1_reg = reg_only.iloc[0]['zi_zero_f1']
-                    print(f"    分类器 (vs只用回归器): Zero F1: {f1_full:.4f} vs {f1_reg:.4f} "
-                          f"(分类器使模型获得了零值识别能力)")
+                    print(f"    Classifier (vs regressor-only): Zero F1: {f1_full:.4f} vs {f1_reg:.4f} "
+                          f"(the classifier gives the model zero-value detection ability)")
 
     print("\n" + "=" * 60)
-    print("完成。")
+    print("Done.")
     print("=" * 60)
 
 

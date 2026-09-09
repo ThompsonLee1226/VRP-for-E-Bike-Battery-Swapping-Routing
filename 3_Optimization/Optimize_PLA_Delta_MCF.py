@@ -87,10 +87,10 @@ def optimize_evrp_with_pla_delta_mcf(
         BigM = _max_arrival_diff + 0.1
 
     if progress_tracker is None:
-        print(f"  [BigM 自适应] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
+        print(f"  [BigM adaptive] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
               f"Deadline={BigM_deadline:.3f}  "
-              f"(原传入 {_BigM_original if _BigM_original <= 10 else '>1000'}, "
-              f"已收紧至 ≤{BigM:.3f})")
+              f"(originally passed {_BigM_original if _BigM_original <= 10 else '>1000'}, "
+              f"tightened to ≤{BigM:.3f})")
 
     # ==========================================================================
     # 0. Index Sets & Feasible Arcs
@@ -118,9 +118,9 @@ def optimize_evrp_with_pla_delta_mcf(
 
     total_possible = len(nodes) * (len(nodes) - 1)
     if progress_tracker is None:
-        print(f"  [Geo-Fencing] 弧段: {len(arc_list)} / {total_possible} "
+        print(f"  [Geo-Fencing] arcs: {len(arc_list)} / {total_possible} "
               f"({100*len(arc_list)/max(1,total_possible):.1f}%) "
-              f"| 阈值: ≤{max_travel_time}h")
+              f"| threshold: ≤{max_travel_time}h")
 
     # ==========================================================================
     # 0b. Precompute Delta-Omega (increments) and Delta-Tau (interval widths)
@@ -161,7 +161,8 @@ def optimize_evrp_with_pla_delta_mcf(
     f = m.addVars(arc_list, vtype=GRB.CONTINUOUS, lb=0.0, ub=C_max, name="f")
 
     if progress_tracker is None:
-        print(f"  [MCF] 流变量: {len(arc_list)} 个连续变量 (不增加分支维度)")
+        print(f"  [MCF] flow variables: {len(arc_list)} continuous variables "
+              f"(without increasing branching dimension)")
 
     # ---- String-key lookup tables (immune to numpy/pandas type drift) ----
     _x_by_str = {}
@@ -273,8 +274,8 @@ def optimize_evrp_with_pla_delta_mcf(
 
     if progress_tracker is None:
         n_mcf_constrs = 1 + len(grids) + len(arc_list)
-        print(f"  [MCF] 约束: DepotBalance + {len(grids)} Balance + "
-              f"{len(arc_list)} Coupling = {n_mcf_constrs} 行")
+        print(f"  [MCF] constraints: DepotBalance + {len(grids)} Balance + "
+              f"{len(arc_list)} Coupling = {n_mcf_constrs} rows")
 
     # ==========================================================================
     # 4. PLA Constraints — DELTA FORMULATION
@@ -371,10 +372,10 @@ def optimize_evrp_with_pla_delta_mcf(
     _mtz_added = set()
 
     if progress_tracker is None:
-        print(f"  [Timing] MTZ → 原生延迟约束回调 (MIPSOL), "
-              f"单一B&B树内动态拦截")
-        print(f"  [Timing] 静态约束: TotalRouteTime (1行) + "
-              f"CycleDeadline (~{len(grids)}行)")
+        print(f"  [Timing] MTZ → native lazy constraint callback (MIPSOL), "
+              f"dynamic interception within a single B&B tree")
+        print(f"  [Timing] static constraints: TotalRouteTime (1 row) + "
+              f"CycleDeadline (~{len(grids)} rows)")
 
     # ==========================================================================
     # 5.5. Greedy Warm-Start Heuristic (adapted for delta encoding)
@@ -516,7 +517,7 @@ def optimize_evrp_with_pla_delta_mcf(
 
         warm_log_parts.append(f"v={v_set} y={y_set}")
         if progress_tracker is None:
-            print(f"  [Warm-Start Delta] 变量注入: {', '.join(warm_log_parts)}")
+            print(f"  [Warm-Start Delta] variable injection: {', '.join(warm_log_parts)}")
 
         return True, len(route_seq) - 2
 
@@ -524,11 +525,11 @@ def optimize_evrp_with_pla_delta_mcf(
     if warm_ok:
         m.NumStart = 1
         if progress_tracker is None:
-            print(f"  [Warm-Start] 贪心启发式注入初始可行解, "
-                  f"访问 {warm_visited} 个网格")
+            print(f"  [Warm-Start] greedy heuristic injected an initial feasible "
+                  f"solution, visiting {warm_visited} grids")
     else:
         if progress_tracker is None:
-            print("  [Warm-Start] 贪心启发式未能构造可行解, 跳过")
+            print("  [Warm-Start] greedy heuristic failed to construct a feasible solution, skipping")
 
     # ==========================================================================
     # 6. Lazy Constraint Callback — Dynamic MTZ Enforcement in Single B&B Tree
@@ -704,8 +705,8 @@ def optimize_evrp_with_pla_delta_mcf(
     # ==========================================================================
     m.setParam('TimeLimit', _total_time_budget)
     if progress_tracker is None:
-        print(f"  [Solve] 单一B&B树 + MIPSOL延迟约束回调, "
-              f"时限{_total_time_budget:.0f}s "
+        print(f"  [Solve] single B&B tree + MIPSOL lazy constraint callback, "
+              f"time limit {_total_time_budget:.0f}s "
               f"(NoRel=60s Improve=60s P={len(tau_list)-1})")
 
     m.optimize(_combined_callback)
@@ -730,13 +731,13 @@ def optimize_evrp_with_pla_delta_mcf(
             _final_obj = m.ObjVal
             _final_bnd = m.ObjBound
             _final_gap = abs(_final_bnd - _final_obj) / (abs(_final_obj) + 1e-9) * 100
-            print(f"  [完成] obj={_final_obj:.4f}  bnd={_final_bnd:.4f}  "
+            print(f"  [Complete] obj={_final_obj:.4f}  bnd={_final_bnd:.4f}  "
                   f"gap={_final_gap:.1f}%  "
                   f"lazy_mtz={_lazy_mtz_count[0]}  "
                   f"callback_invocations={_lazy_callback_count[0]}  "
-                  f"耗时={_elapsed:.0f}s")
+                  f"elapsed={_elapsed:.0f}s")
         except Exception:
-            print(f"  [完成] 耗时={_elapsed:.0f}s  "
+            print(f"  [Complete] elapsed={_elapsed:.0f}s  "
                   f"lazy_mtz={_lazy_mtz_count[0]}  "
                   f"callbacks={_lazy_callback_count[0]}")
     else:

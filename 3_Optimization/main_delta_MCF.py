@@ -149,7 +149,7 @@ def run_optimization_pipeline(
 
     if verbose:
         print(f"[{experiment_id}] Delta-MCF Pipeline | P={P_intervals} | Geo-Fence={'✓' if geo_fencing else '✗'}")
-        print(f"  数据={data_file} | "
+        print(f"  data={data_file} | "
               f"C={C_max} T={T_total} P={P_intervals} "
               f"Y={{{min(_y)}..{max(_y)}}} "
               f"arc≤{max_travel_time}h | speed={vehicle_speed_kmh}km/h")
@@ -201,9 +201,9 @@ def run_optimization_pipeline(
     total_possible = (len(active_grids) + 1) * len(active_grids)
 
     if verbose:
-        print(f"  网格: {original_grid_count}→{len(active_grids)} "
-              f"(剔除{removed_zeros}零效用) | "
-              f"弧段: {feasible_arcs_count}/{total_possible} "
+        print(f"  Grids: {original_grid_count}→{len(active_grids)} "
+              f"(removed {removed_zeros} zero-utility) | "
+              f"Arcs: {feasible_arcs_count}/{total_possible} "
               f"({100*feasible_arcs_count/max(1,total_possible):.0f}%)")
 
     collector.original_grid_count = original_grid_count
@@ -214,7 +214,7 @@ def run_optimization_pipeline(
 
     if not active_grids:
         if verbose:
-            print("\n  [终止] 所有网格均无正效用, 无需调度。")
+            print("\n  [Stop] All grids have zero utility; no dispatch needed.")
         collector.solve_status = "SKIPPED"
         return {
             "model": None, "grids": [], "travel_time": travel_time,
@@ -228,7 +228,7 @@ def run_optimization_pipeline(
     # ===== Step 5: 求解 =====
     progress = GurobiProgressTracker(label=experiment_id) if verbose else None
     if verbose:
-        print(f"[求解] 开始 Delta+MCF...")
+        print(f"[Solve] Starting Delta+MCF...")
 
     t_start = time.perf_counter()
     model = optimize_evrp_with_pla_delta_mcf(
@@ -316,10 +316,10 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
       - T_total: 规划周期长度
     """
     status_map = {
-        GRB.OPTIMAL: "OPTIMAL (全局最优)",
+        GRB.OPTIMAL: "OPTIMAL (global optimum)",
         GRB.SUBOPTIMAL: "SUBOPTIMAL",
-        GRB.TIME_LIMIT: "TIME_LIMIT (超时截断)",
-        GRB.INFEASIBLE: "INFEASIBLE (不可行)",
+        GRB.TIME_LIMIT: "TIME_LIMIT (time-limit cut-off)",
+        GRB.INFEASIBLE: "INFEASIBLE (infeasible)",
         GRB.INF_OR_UNBD: "INFEASIBLE or UNBOUNDED",
         GRB.UNBOUNDED: "UNBOUNDED",
     }
@@ -336,7 +336,7 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
         feasible_arcs = getattr(model, '_feasible_arcs', set())
     except AttributeError:
         if verbose:
-            print("  [警告] 模型未返回可行解，跳过路由提取。")
+            print("  [WARNING] The model returned no feasible solution; skipping route extraction.")
         return result
 
     visited = [j for j in grids if v[j].X > 0.5]
@@ -348,7 +348,7 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 
     if not visited:
         if verbose:
-            print("  路由为空。")
+            print("  Route is empty.")
         return result
 
     def _arc_val(i, j):
@@ -365,7 +365,7 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 
     if next_node is None:
         if verbose:
-            print("  [警告] 未找到从 depot 出发的边。")
+            print("  [WARNING] No edge starting from the depot was found.")
         return result
 
     route_seq = [depot]
@@ -457,7 +457,7 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
     }
 
     if verbose:
-        print(f"\n  路由 ({len(route_seq)}节点, {total_swaps}块电池):")
+        print(f"\n  Route ({len(route_seq)} nodes, {total_swaps} batteries):")
         cum_time = 0.0
         timing_issues = 0
         prev_grid = depot
@@ -483,10 +483,10 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
                 prev_grid = grid
 
         if timing_issues > 0:
-            print(f"  ⚠ {timing_issues}处时序偏差>0.05h")
+            print(f"  ⚠ {timing_issues} timing deviations >0.05h")
         else:
-            print(f"  ✓ 时序一致 | 行驶{total_travel_time:.3f}h "
-                  f"服务{total_service_time:.3f}h 完工{makespan:.3f}h")
+            print(f"  ✓ Timing consistent | travel {total_travel_time:.3f}h "
+                  f"service {total_service_time:.3f}h makespan {makespan:.3f}h")
 
     return result
 
@@ -496,45 +496,45 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 # =========================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Delta-MCF 多商品流优化引擎 —— E-Bike Battery Swapping VRP",
+        description="Delta-MCF multi-commodity-flow optimization engine —— E-Bike Battery Swapping VRP",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  python main_delta_MCF.py                                                 # 使用默认时间
-  python main_delta_MCF.py --datetime "2025/11/02 12:00"                   # 指定具体时间
-  python main_delta_MCF.py --random                                        # 随机选取可用小时
-  python main_delta_MCF.py --random --seed 42                              # 随机选取 (固定种子)
-  python main_delta_MCF.py --list-hours                                    # 列出可用小时
-  python main_delta_MCF.py --data path/to/other.csv                        # 指定数据文件
+Usage examples:
+  python main_delta_MCF.py                                                 # use default time
+  python main_delta_MCF.py --datetime "2025/11/02 12:00"                   # specify a concrete time
+  python main_delta_MCF.py --random                                        # pick an available hour at random
+  python main_delta_MCF.py --random --seed 42                              # random selection (fixed seed)
+  python main_delta_MCF.py --list-hours                                    # list available hours
+  python main_delta_MCF.py --data path/to/other.csv                        # specify a data file
         """,
     )
     parser.add_argument(
         "--data", type=str, default=DEFAULT_DATA_FILE,
-        help="预测数据 CSV 文件路径"
+        help="Path to the prediction-data CSV file"
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/11/02 12:00')"
+        help="Target datetime, format: 'YYYY/MM/DD HH:MM' (e.g. '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",
-        help="从可用小时中随机选取一个"
+        help="Pick one of the available hours at random"
     )
     parser.add_argument(
         "--seed", type=int, default=None,
-        help="配合 --random 使用, 固定随机种子"
+        help="Fix the random seed (used with --random)"
     )
     parser.add_argument(
         "--start", type=str, default=DATETIME_RANGE_START,
-        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+        help=f"Start time for random selection (default: {DATETIME_RANGE_START})"
     )
     parser.add_argument(
         "--end", type=str, default=DATETIME_RANGE_END,
-        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+        help=f"End time for random selection (default: {DATETIME_RANGE_END})"
     )
     parser.add_argument(
         "--list-hours", action="store_true",
-        help="列出 CSV 中所有可用小时并退出"
+        help="List all available hours in the CSV and exit"
     )
 
     args = parser.parse_args()
@@ -547,9 +547,9 @@ if __name__ == "__main__":
             end=args.end,
         )
         print("=" * 60)
-        print(f"  文件: {args.data}")
-        print(f"  时间范围: {args.start} ~ {args.end}")
-        print(f"  可用小时数: {len(hours)}")
+        print(f"  File: {args.data}")
+        print(f"  Time range: {args.start} ~ {args.end}")
+        print(f"  Available hours: {len(hours)}")
         print("=" * 60)
         for h in hours:
             print(h.strftime("%Y/%m/%d %H:%M"))
@@ -564,20 +564,20 @@ if __name__ == "__main__":
             seed=args.seed,
         )
         print("=" * 60)
-        print("  [随机] 随机选取模式 — Delta-MCF 多商品流优化引擎")
+        print("  [Random] Random-selection mode — Delta-MCF multi-commodity-flow optimization engine")
         if args.seed is not None:
-            print(f"  随机种子: {args.seed}")
+            print(f"  Random seed: {args.seed}")
     elif args.datetime is not None:
         target_datetime = args.datetime
         print("=" * 60)
-        print("  [指定] 用户指定日期时间 — Delta-MCF 多商品流优化引擎")
+        print("  [Specified] User-specified datetime — Delta-MCF multi-commodity-flow optimization engine")
     else:
         target_datetime = DEFAULT_TARGET_DATETIME
         print("=" * 60)
-        print("  [默认] 默认日期时间 — Delta-MCF 多商品流优化引擎")
+        print("  [Default] Default datetime — Delta-MCF multi-commodity-flow optimization engine")
 
-    print(f"  选择的目标时间: {target_datetime}")
-    print(f"  数据文件: {args.data}")
+    print(f"  Selected target datetime: {target_datetime}")
+    print(f"  Data file: {args.data}")
     print("=" * 60)
 
     result = run_optimization_pipeline(

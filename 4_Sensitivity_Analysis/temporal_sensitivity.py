@@ -113,11 +113,11 @@ def run_temporal_sensitivity(
         end=DATETIME_RANGE_END,
     )
     n_available = len(all_hours)
-    print(f"可用小时池: {n_available} 个 (范围 {DATETIME_RANGE_START} ~ {DATETIME_RANGE_END})")
+    print(f"Available hours pool: {n_available} (range {DATETIME_RANGE_START} ~ {DATETIME_RANGE_END})")
 
     if n_samples > n_available:
         raise ValueError(
-            f"请求采样 {n_samples} 个时间戳, 但可用小时仅 {n_available} 个"
+            f"Requested to sample {n_samples} timestamps, but only {n_available} hours are available"
         )
 
     # ---- 随机采样 ----
@@ -126,7 +126,7 @@ def run_temporal_sensitivity(
     # 按时间先后排序, 便于观察时间趋势
     sampled_ts = sorted(sampled_ts)
 
-    print(f"随机采样 {n_samples} 个时间戳 (seed={seed}):")
+    print(f"Randomly sampled {n_samples} timestamps (seed={seed}):")
     for i, ts in enumerate(sampled_ts):
         print(f"  [{i+1:2d}] {ts.strftime('%Y/%m/%d %H:%M')}")
 
@@ -140,8 +140,8 @@ def run_temporal_sensitivity(
     n_total = len(sampled_ts)
 
     print(f"\n{'='*70}")
-    print(f"  开始逐时间戳求解 (共 {n_total} 个, 单次时限 {FIXED_TIME_LIMIT_S}s)")
-    print(f"  结果目录: {batch_dir}")
+    print(f"  Solving timestamps one by one ({n_total} total, per-run time limit {FIXED_TIME_LIMIT_S}s)")
+    print(f"  Results directory: {batch_dir}")
     print(f"{'='*70}")
 
     for idx, ts_dt in enumerate(sampled_ts):
@@ -151,8 +151,8 @@ def run_temporal_sensitivity(
         os.makedirs(ts_output_dir, exist_ok=True)
 
         print(f"\n{'─'*60}")
-        print(f"  [{idx+1}/{n_total}] 时间戳: {ts_str}")
-        print(f"  输出子目录: {ts_dirname}")
+        print(f"  [{idx+1}/{n_total}] Timestamp: {ts_str}")
+        print(f"  Output subdirectory: {ts_dirname}")
         print(f"{'─'*60}")
 
         t_start = time.perf_counter()
@@ -181,7 +181,7 @@ def run_temporal_sensitivity(
             )
         except Exception as exc:
             elapsed = round(time.perf_counter() - t_start, 2)
-            print(f"  [ERROR] 求解异常: {exc}")
+            print(f"  [ERROR] Solve exception: {exc}")
             records.append({
                 "datetime": ts_str,
                 "status": f"ERROR: {exc}",
@@ -242,20 +242,20 @@ def run_temporal_sensitivity(
     summary_csv = os.path.join(batch_dir, f"temporal_summary_{run_timestamp}.csv")
     df.to_csv(summary_csv, index=False, encoding="utf-8-sig")
     print(f"\n{'='*70}")
-    print(f"  时间敏感性分析完成!")
-    print(f"  汇总 CSV: {summary_csv}")
+    print(f"  Temporal sensitivity analysis complete!")
+    print(f"  Summary CSV: {summary_csv}")
     print(f"{'='*70}")
 
     # 打印简要统计
     successful = df[~df["status"].str.contains("ERROR|SKIPPED|INFEASIBLE", na=False)]
     if not successful.empty:
-        print(f"\n  成功求解: {len(successful)}/{n_total}")
-        print(f"  Objective 均值: {successful['objective'].mean():.4f}")
-        print(f"  Objective 标准差: {successful['objective'].std():.4f}")
-        print(f"  Objective 范围: [{successful['objective'].min():.4f}, {successful['objective'].max():.4f}]")
-        print(f"  平均求解耗时: {successful['elapsed_seconds'].mean():.1f}s")
-        print(f"  平均访问节点数: {successful['num_visited'].mean():.1f}")
-        print(f"  平均换电量: {successful['total_swaps'].mean():.1f}")
+        print(f"\n  Successfully solved: {len(successful)}/{n_total}")
+        print(f"  Objective mean: {successful['objective'].mean():.4f}")
+        print(f"  Objective std: {successful['objective'].std():.4f}")
+        print(f"  Objective range: [{successful['objective'].min():.4f}, {successful['objective'].max():.4f}]")
+        print(f"  Average solve time: {successful['elapsed_seconds'].mean():.1f}s")
+        print(f"  Average visited grids: {successful['num_visited'].mean():.1f}")
+        print(f"  Average swaps: {successful['total_swaps'].mean():.1f}")
 
     return df
 
@@ -268,39 +268,39 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=DeprecationWarning)
 
     parser = argparse.ArgumentParser(
-        description="ST-Graph 时间敏感性分析 — 随机采样多时间戳评估",
+        description="ST-Graph Temporal Sensitivity Analysis — Random Multi-Timestamp Evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
-  python 4_Sensitivity_Analysis/temporal_sensitivity.py                        # 默认: 20 个随机时间戳
-  python 4_Sensitivity_Analysis/temporal_sensitivity.py --seed 42              # 固定种子
-  python 4_Sensitivity_Analysis/temporal_sensitivity.py --n-samples 30         # 采样 30 个
-  python 4_Sensitivity_Analysis/temporal_sensitivity.py --data other.csv       # 指定数据文件
+Examples:
+  python 4_Sensitivity_Analysis/temporal_sensitivity.py                        # default: 20 random timestamps
+  python 4_Sensitivity_Analysis/temporal_sensitivity.py --seed 42              # fixed seed
+  python 4_Sensitivity_Analysis/temporal_sensitivity.py --n-samples 30         # sample 30
+  python 4_Sensitivity_Analysis/temporal_sensitivity.py --data other.csv       # specify a data file
         """,
     )
     parser.add_argument(
         "--data", type=str, default=DATA_FILE,
-        help=f"预测数据 CSV 文件路径 (默认: prediction_CB_Hurdle.csv)"
+        help=f"Prediction data CSV file path (default: prediction_CB_Hurdle.csv)"
     )
     parser.add_argument(
         "--n-samples", type=int, default=20,
-        help="随机采样的时间戳数量 (默认: 20)"
+        help="Number of timestamps to randomly sample (default: 20)"
     )
     parser.add_argument(
         "--seed", type=int, default=None,
-        help="随机种子, 用于结果复现"
+        help="Random seed, used for reproducing results"
     )
 
     args = parser.parse_args()
 
     print("=" * 70)
-    print("  ST-Graph 优化模型 — 时间敏感性分析")
-    print(f"  数据文件: {args.data}")
-    print(f"  采样数量: {args.n_samples}")
-    print(f"  随机种子: {args.seed}")
-    print(f"  可用时间范围: {DATETIME_RANGE_START} ~ {DATETIME_RANGE_END}")
-    print(f"  求解时限: {FIXED_TIME_LIMIT_S}s (单次)")
-    print(f"  结果根目录: {OUTPUT_ROOT_DIR}")
+    print("  ST-Graph Optimization Model — Temporal Sensitivity Analysis")
+    print(f"  Data file: {args.data}")
+    print(f"  Number of samples: {args.n_samples}")
+    print(f"  Random seed: {args.seed}")
+    print(f"  Available time range: {DATETIME_RANGE_START} ~ {DATETIME_RANGE_END}")
+    print(f"  Solve time limit: {FIXED_TIME_LIMIT_S}s (per run)")
+    print(f"  Results root directory: {OUTPUT_ROOT_DIR}")
     print("=" * 70)
 
     df = run_temporal_sensitivity(

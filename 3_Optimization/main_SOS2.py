@@ -189,7 +189,7 @@ def run_optimization_pipeline(
     if verbose:
         print(f"[{experiment_id}] SOS2-PLA Pipeline | P={P_intervals} | Geo-Fence={'✓' if geo_fencing else '✗'}")
         print("=" * 60)
-        print("Step 1/6: 加载数据与预处理")
+        print("Step 1/6: Load data and preprocess")
         print("=" * 60)
 
     grids, grid_params, snapshot_df = prepare_optimize_inputs(
@@ -198,16 +198,16 @@ def run_optimization_pipeline(
     original_grid_count = len(grids)
 
     if verbose:
-        print(f"  数据文件: {data_file}")
-        print(f"  目标时间: {pd.Timestamp(target_datetime).floor('h')}")
-        print(f"  原始网格数量: {original_grid_count}")
+        print(f"  Data file: {data_file}")
+        print(f"  Target time: {pd.Timestamp(target_datetime).floor('h')}")
+        print(f"  Original grid count: {original_grid_count}")
 
     # -----------------------------------------------------------------
     # Step 2: 提取坐标 & 构建旅行时间矩阵 (含 depot)
     # -----------------------------------------------------------------
     if verbose:
         print("\n" + "=" * 60)
-        print("Step 2/6: 提取坐标 & 构建旅行时间矩阵")
+        print("Step 2/6: Extract coordinates & build travel time matrix")
         print("=" * 60)
 
     grid_coords = extract_grid_coordinates(snapshot_df)
@@ -217,11 +217,11 @@ def run_optimization_pipeline(
         depot_lat = float(np.mean([c[0] for c in grid_coords.values()]))
         depot_lon = float(np.mean([c[1] for c in grid_coords.values()]))
         if verbose:
-            print(f"  Depot 坐标未指定，自动使用网格质心: "
+            print(f"  Depot coordinates unspecified; auto-using grid centroid: "
                   f"({depot_lat:.6f}, {depot_lon:.6f})")
     else:
         if verbose:
-            print(f"  Depot 坐标: ({depot_lat:.6f}, {depot_lon:.6f})")
+            print(f"  Depot coordinates: ({depot_lat:.6f}, {depot_lon:.6f})")
 
     travel_time = build_full_travel_time_matrix(
         grids, grid_coords, depot_lat, depot_lon, vehicle_speed_kmh
@@ -235,9 +235,9 @@ def run_optimization_pipeline(
     )
 
     if verbose:
-        print(f"  车速设定: {vehicle_speed_kmh} km/h")
-        print(f"  弧段裁剪阈值: ≤{max_travel_time}h")
-        print(f"  可行弧段预览: ~{feasible_arcs_pre} / ~{total_arcs} "
+        print(f"  Vehicle speed: {vehicle_speed_kmh} km/h")
+        print(f"  Arc pruning threshold: ≤{max_travel_time}h")
+        print(f"  Feasible arcs preview: ~{feasible_arcs_pre} / ~{total_arcs} "
               f"({100*feasible_arcs_pre/max(1,total_arcs):.1f}%)")
 
     # -----------------------------------------------------------------
@@ -245,7 +245,7 @@ def run_optimization_pipeline(
     # -----------------------------------------------------------------
     if verbose:
         print("\n" + "=" * 60)
-        print("Step 3/6: 构建 PLA 效用矩阵 Omega")
+        print("Step 3/6: Build PLA utility matrix Omega")
         print("=" * 60)
         print(f"  C_max={C_max}, T_total={T_total}, P_intervals={P_intervals}")
 
@@ -264,7 +264,7 @@ def run_optimization_pipeline(
     # -----------------------------------------------------------------
     if verbose:
         print("\n" + "=" * 60)
-        print("Step 4/6: Geo-Fencing 空间剪枝")
+        print("Step 4/6: Geo-Fencing spatial pruning")
         print("=" * 60)
 
     # 4a. 零效用节点过滤 (条件执行)
@@ -280,10 +280,10 @@ def run_optimization_pipeline(
 
     if verbose:
         if geo_fencing:
-            print(f"  [节点过滤] 零效用网格剔除: {removed_zeros} / {original_grid_count}")
-            print(f"              活跃网格保留: {len(active_grids)}")
+            print(f"  [Node filtering] Zero-utility grids removed: {removed_zeros} / {original_grid_count}")
+            print(f"              Active grids kept: {len(active_grids)}")
         else:
-            print(f"  [节点过滤] 消融模式: 保留全部 {original_grid_count} 个网格 (零效用过滤已跳过)")
+            print(f"  [Node filtering] Ablation mode: keeping all {original_grid_count} grids (zero-utility filtering skipped)")
 
     # 4b. 为活跃网格重建旅行时间矩阵 (与 depot)
     travel_time = build_full_travel_time_matrix(
@@ -297,7 +297,7 @@ def run_optimization_pipeline(
     )
     total_possible = (len(active_grids) + 1) * len(active_grids)
     if verbose:
-        print(f"  [边长裁剪] 活跃弧段: {feasible_arcs_count} / ~{total_possible} "
+        print(f"  [Arc-length pruning] Active arcs: {feasible_arcs_count} / ~{total_possible} "
               f"({100*feasible_arcs_count/max(1,total_possible):.1f}%)")
 
     collector.original_grid_count = original_grid_count
@@ -309,7 +309,7 @@ def run_optimization_pipeline(
     # 若无活跃网格, 提前退出
     if not active_grids:
         if verbose:
-            print("\n  [终止] 所有网格均无正效用, 无需调度。")
+            print("\n  [Stop] All grids have zero utility; no dispatch needed.")
         collector.solve_status = "SKIPPED"
         return {
             "model": None, "grids": [], "travel_time": travel_time,
@@ -325,7 +325,7 @@ def run_optimization_pipeline(
     # -----------------------------------------------------------------
     if verbose:
         print("\n" + "=" * 60)
-        print("Step 5/6: 执行 Gurobi PLA-MIP 求解")
+        print("Step 5/6: Run Gurobi PLA-MIP solve")
         print("=" * 60)
 
     progress = GurobiProgressTracker(label=experiment_id) if verbose else None
@@ -351,17 +351,17 @@ def run_optimization_pipeline(
     collector.record_solve(progress, t_elapsed, model)
 
     if verbose:
-        print(f"\n  求解耗时: {t_elapsed:.1f} 秒")
-        print(f"  求解状态: {model.Status}")
+        print(f"\n  Solve time: {t_elapsed:.1f} s")
+        print(f"  Solve status: {model.Status}")
         if progress and progress.records:
-            print(f"  进度摘要: {progress.summary()}")
+            print(f"  Progress summary: {progress.summary()}")
 
     # -----------------------------------------------------------------
     # Step 6: 结果解析与输出
     # -----------------------------------------------------------------
     if verbose:
         print("\n" + "=" * 60)
-        print("Step 6/6: 结果解析")
+        print("Step 6/6: Parse results")
         print("=" * 60)
 
     result = _parse_solution(model, active_grids, travel_time, swap_time_c,
@@ -423,10 +423,10 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
       - T_total: 规划周期长度
     """
     status_map = {
-        GRB.OPTIMAL: "OPTIMAL (全局最优)",
+        GRB.OPTIMAL: "OPTIMAL (global optimum)",
         GRB.SUBOPTIMAL: "SUBOPTIMAL",
-        GRB.TIME_LIMIT: "TIME_LIMIT (超时截断)",
-        GRB.INFEASIBLE: "INFEASIBLE (不可行)",
+        GRB.TIME_LIMIT: "TIME_LIMIT (time-limit cut-off)",
+        GRB.INFEASIBLE: "INFEASIBLE (infeasible)",
         GRB.INF_OR_UNBD: "INFEASIBLE or UNBOUNDED",
         GRB.UNBOUNDED: "UNBOUNDED",
     }
@@ -443,7 +443,7 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
         feasible_arcs = getattr(model, '_feasible_arcs', set())
     except AttributeError:
         if verbose:
-            print("  [警告] 模型未返回可行解，跳过路由提取。")
+            print("  [WARNING] The model returned no feasible solution; skipping route extraction.")
         return result
 
     # 被访问的 grid
@@ -451,13 +451,13 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
     result["visited_grids"] = visited
 
     if verbose:
-        print(f"  求解状态: {status}")
-        print(f"  目标函数值: {obj_val:.6f}" if obj_val is not None else "  目标函数值: N/A")
-        print(f"  访问网格数: {len(visited)} / {len(grids)}")
+        print(f"  Solve status: {status}")
+        print(f"  Objective value: {obj_val:.6f}" if obj_val is not None else "  Objective value: N/A")
+        print(f"  Visited grids: {len(visited)} / {len(grids)}")
 
     if not visited:
         if verbose:
-            print("  [信息] 未访问任何网格，路由为空。")
+            print("  [INFO] No grid was visited; the route is empty.")
         return result
 
     # 辅助函数: 安全获取弧变量值 (稀疏 tupledict 不存在键时返回 0)
@@ -476,7 +476,7 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 
     if next_node is None:
         if verbose:
-            print("  [警告] 未找到从 depot 出发的边。")
+            print("  [WARNING] No edge starting from the depot was found.")
         return result
 
     route_seq = [depot]
@@ -570,19 +570,19 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
     }
 
     if verbose:
-        print(f"\n  路由序列 ({len(route_seq)} 个节点):")
+        print(f"\n  Route sequence ({len(route_seq)} nodes):")
         for step in result["route"]:
             if step["grid"] == "DEPOT":
-                print(f"    [DEPOT]  到达时间: {step['arrival_time']:.4f}h")
+                print(f"    [DEPOT]  Arrival time: {step['arrival_time']:.4f}h")
             else:
                 print(f"    → {step['grid']}  "
-                      f"(到达 {step['arrival_time']:.4f}h, "
-                      f"换电 {step['y_swapped']} 块)")
-        print(f"\n  汇总:")
-        print(f"    总换电量: {total_swaps}")
-        print(f"    总行驶时间: {total_travel_time:.4f} h")
-        print(f"    总服务时间: {total_service_time:.4f} h")
-        print(f"    完工时间: {makespan:.4f} h")
+                      f"(arrive {step['arrival_time']:.4f}h, "
+                      f"swap {step['y_swapped']} batteries)")
+        print(f"\n  Summary:")
+        print(f"    Total swaps: {total_swaps}")
+        print(f"    Total travel time: {total_travel_time:.4f} h")
+        print(f"    Total service time: {total_service_time:.4f} h")
+        print(f"    Makespan: {makespan:.4f} h")
 
     return result
 
@@ -593,45 +593,45 @@ def _parse_solution(model, grids, travel_time, swap_time_c,
 # =========================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="SOS2-PLA 优化引擎 —— E-Bike Battery Swapping VRP",
+        description="SOS2-PLA optimization engine —— E-Bike Battery Swapping VRP",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  python main_SOS2.py                                                     # 使用默认时间
-  python main_SOS2.py --datetime "2025/11/02 12:00"                       # 指定具体时间
-  python main_SOS2.py --random                                            # 随机选取可用小时
-  python main_SOS2.py --random --seed 42                                  # 随机选取 (固定种子)
-  python main_SOS2.py --list-hours                                        # 列出可用小时
-  python main_SOS2.py --data path/to/other.csv                            # 指定数据文件
+Usage examples:
+  python main_SOS2.py                                                     # use default time
+  python main_SOS2.py --datetime "2025/11/02 12:00"                       # specify a concrete time
+  python main_SOS2.py --random                                            # pick an available hour at random
+  python main_SOS2.py --random --seed 42                                  # random selection (fixed seed)
+  python main_SOS2.py --list-hours                                        # list available hours
+  python main_SOS2.py --data path/to/other.csv                            # specify a data file
         """,
     )
     parser.add_argument(
         "--data", type=str, default=DEFAULT_DATA_FILE,
-        help="预测数据 CSV 文件路径"
+        help="Path to the prediction-data CSV file"
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/11/02 12:00')"
+        help="Target datetime, format: 'YYYY/MM/DD HH:MM' (e.g. '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",
-        help="从可用小时中随机选取一个"
+        help="Pick one of the available hours at random"
     )
     parser.add_argument(
         "--seed", type=int, default=None,
-        help="配合 --random 使用, 固定随机种子"
+        help="Fix the random seed (used with --random)"
     )
     parser.add_argument(
         "--start", type=str, default=DATETIME_RANGE_START,
-        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+        help=f"Start time for random selection (default: {DATETIME_RANGE_START})"
     )
     parser.add_argument(
         "--end", type=str, default=DATETIME_RANGE_END,
-        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+        help=f"End time for random selection (default: {DATETIME_RANGE_END})"
     )
     parser.add_argument(
         "--list-hours", action="store_true",
-        help="列出 CSV 中所有可用小时并退出"
+        help="List all available hours in the CSV and exit"
     )
 
     args = parser.parse_args()
@@ -644,9 +644,9 @@ if __name__ == "__main__":
             end=args.end,
         )
         print("=" * 60)
-        print(f"  文件: {args.data}")
-        print(f"  时间范围: {args.start} ~ {args.end}")
-        print(f"  可用小时数: {len(hours)}")
+        print(f"  File: {args.data}")
+        print(f"  Time range: {args.start} ~ {args.end}")
+        print(f"  Available hours: {len(hours)}")
         print("=" * 60)
         for h in hours:
             print(h.strftime("%Y/%m/%d %H:%M"))
@@ -661,20 +661,20 @@ if __name__ == "__main__":
             seed=args.seed,
         )
         print("=" * 60)
-        print("  [随机] 随机选取模式 — SOS2-PLA 优化引擎")
+        print("  [Random] Random-selection mode — SOS2-PLA optimization engine")
         if args.seed is not None:
-            print(f"  随机种子: {args.seed}")
+            print(f"  Random seed: {args.seed}")
     elif args.datetime is not None:
         target_datetime = args.datetime
         print("=" * 60)
-        print("  [指定] 用户指定日期时间 — SOS2-PLA 优化引擎")
+        print("  [Specified] User-specified datetime — SOS2-PLA optimization engine")
     else:
         target_datetime = DEFAULT_TARGET_DATETIME
         print("=" * 60)
-        print("  [默认] 默认日期时间 — SOS2-PLA 优化引擎")
+        print("  [Default] Default datetime — SOS2-PLA optimization engine")
 
-    print(f"  选择的目标时间: {target_datetime}")
-    print(f"  数据文件: {args.data}")
+    print(f"  Selected target datetime: {target_datetime}")
+    print(f"  Data file: {args.data}")
     print("=" * 60)
 
     result = run_optimization_pipeline(

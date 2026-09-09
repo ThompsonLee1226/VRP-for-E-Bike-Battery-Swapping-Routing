@@ -348,7 +348,7 @@ def export_experiment_result(collector: MetricsCollector,
     pd.DataFrame([summary_dict]).to_csv(summary_path, index=False)
 
     if verbose:
-        print(f"  [实验导出] {prefix} → {output_dir}/")
+        print(f"  [Experiment export] {prefix} → {output_dir}/")
 
     return json_path
 
@@ -359,7 +359,7 @@ def merge_batch_results(metrics_list: list[dict], output_path: str):
         return
     df = pd.DataFrame(metrics_list)
     df.to_csv(output_path, index=False)
-    print(f"  [批量汇总] {len(df)} 条实验记录 → {output_path}")
+    print(f"  [Batch summary] {len(df)} experiment records → {output_path}")
     return df
 
 

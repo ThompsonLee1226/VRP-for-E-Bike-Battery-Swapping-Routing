@@ -633,7 +633,7 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
         rent_pred = np.where(rent_prob < rent_threshold, 0.0, rent_soft)
     print(f"  rent τ_peak={rent_segment_thresholds.get('peak', 'N/A')}, "
           f"τ_off={rent_segment_thresholds.get('off_peak', 'N/A')}, "
-          f"预测零值占比={float((rent_pred <= 1e-6).mean()):.2%}")
+          f"pred-zero ratio={float((rent_pred <= 1e-6).mean()):.2%}")
 
     # === Return Prediction (Hurdle: 分时段阈值) ===
     return_prob = models_dict['return']['classifier'].predict_proba(X_test)[:, 1]
@@ -653,7 +653,7 @@ def predict_on_test_data(models_dict, feature_cols, test_file, output_file):
         return_pred = np.where(return_prob < return_threshold, 0.0, return_soft)
     print(f"  return τ_peak={return_segment_thresholds.get('peak', 'N/A')}, "
           f"τ_off={return_segment_thresholds.get('off_peak', 'N/A')}, "
-          f"预测零值占比={float((return_pred <= 1e-6).mean()):.2%}")
+          f"pred-zero ratio={float((return_pred <= 1e-6).mean()):.2%}")
 
     # --- Assemble output in Grid_Utility format ---
     result_df = pd.DataFrame()

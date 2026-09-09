@@ -184,8 +184,8 @@ def run_optimization_pipeline(
             pruning_info.append("Geo-Fence")
         if knn_enabled:
             pruning_info.append(f"KNN(K={K_neighbors})")
-        pruning_str = " + ".join(pruning_info) if pruning_info else "无剪枝(消融模式)"
-        print(f"[{experiment_id}] 数据={data_file} | "
+        pruning_str = " + ".join(pruning_info) if pruning_info else "No pruning (ablation mode)"
+        print(f"[{experiment_id}] data={data_file} | "
               f"C={C_max} T={T_total} P={P_intervals} "
               f"Y={{{min(_y)}..{max(_y)}}} "
               f"Pruning=[{pruning_str}] | speed={vehicle_speed_kmh}km/h")
@@ -242,11 +242,11 @@ def run_optimization_pipeline(
 
     if verbose:
         if geo_fencing:
-            print(f"  [Geo-Fencing ✓] 网格剪枝: {original_grid_count}→{len(active_grids)} "
-                  f"(剔除 {removed_zeros} 个零收益网格)")
+            print(f"  [Geo-Fencing ✓] Grid pruning: {original_grid_count}→{len(active_grids)} "
+                  f"(removed {removed_zeros} zero-utility grids)")
         else:
-            print(f"  [Geo-Fencing ✗] 消融模式: 保留全部 {original_grid_count} 个网格 (零效用过滤已跳过)")
-        print(f"  [弧段统计] 可行弧段: {feasible_arcs_count} / ~{total_possible_arcs} "
+            print(f"  [Geo-Fencing ✗] Ablation mode: keeping all {original_grid_count} grids (zero-utility filtering skipped)")
+        print(f"  [Arc stats] Feasible arcs: {feasible_arcs_count} / ~{total_possible_arcs} "
               f"({100*feasible_arcs_count/max(1,total_possible_arcs):.1f}%)")
 
     collector.original_grid_count = original_grid_count
@@ -257,7 +257,7 @@ def run_optimization_pipeline(
 
     if not active_grids:
         if verbose:
-            print("\n  [终止] 全局网格在当前切片下均无正收益效用，取消外派调度。")
+            print("\n  [Stop] No grid yields positive utility under the current slice; canceling dispatch.")
         collector.solve_status = "SKIPPED"
         return {
             "model": None, "grids": [], "travel_time": travel_time,
@@ -271,8 +271,8 @@ def run_optimization_pipeline(
     _effective_K = K_neighbors if knn_enabled else 99999
     progress = GurobiProgressTracker(label=experiment_id) if verbose else None
     if verbose:
-        knn_info = f"K={_effective_K}" if knn_enabled else "K=∞ (消融模式)"
-        print(f"[求解] 启动 Space-Time Graph 优化引擎 | KNN={knn_info}...")
+        knn_info = f"K={_effective_K}" if knn_enabled else "K=∞ (ablation mode)"
+        print(f"[Solve] Starting Space-Time Graph optimization engine | KNN={knn_info}...")
 
     t_start = time.perf_counter()
     model = optimize_evrp_with_stgraph(
@@ -360,19 +360,19 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
       - T_total: 规划周期长度, 传入效用分流函数
     """
     status_map = {
-        GRB.OPTIMAL: "OPTIMAL (全局最优)",
+        GRB.OPTIMAL: "OPTIMAL (global optimum)",
         GRB.SUBOPTIMAL: "SUBOPTIMAL",
-        GRB.TIME_LIMIT: "TIME_LIMIT (超时截断)",
-        GRB.INFEASIBLE: "INFEASIBLE (数学上不可行)",
+        GRB.TIME_LIMIT: "TIME_LIMIT (time-limit cut-off)",
+        GRB.INFEASIBLE: "INFEASIBLE (mathematically infeasible)",
     }
-    status = status_map.get(model.Status, f"状态码: {model.Status}")
+    status = status_map.get(model.Status, f"Status code: {model.Status}")
     obj_val = model.ObjVal if model.Status in (GRB.OPTIMAL, GRB.SUBOPTIMAL, GRB.TIME_LIMIT) else None
 
     result = {"status": status, "objective": obj_val, "route": [], "summary": {}}
 
     if obj_val is None:
         if verbose:
-            print("  [警告] 模型未寻获任何合法整数可行解，终止路由解码。")
+            print("  [WARNING] The model found no feasible integer solution; aborting route decoding.")
         return result
 
     x = model._x
@@ -387,11 +387,11 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
     result["visited_grids"] = visited_spatial
 
     if verbose:
-        print(f"  [{status}] 变现资产 obj={obj_val:.4f} | 物理空间触达节点={len(visited_spatial)}")
+        print(f"  [{status}] Realized value obj={obj_val:.4f} | physical reached nodes={len(visited_spatial)}")
 
     if not activated_arcs:
         if verbose:
-            print("  [提示] 车辆未出站。")
+            print("  [NOTE] The vehicle never left the depot.")
         return result
 
     # 核心：顺藤摸瓜。沿着时空流的 DAG 有向拓扑，以 (current_node, current_s) 为线索还原绝对唯一的行驶链
@@ -502,7 +502,7 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
     }
 
     if verbose and result["route"]:
-        print(f"\n  时空扩展还原路由序列 ({len(result['route'])} 动作节点, 换电数量 {total_swaps} 块):")
+        print(f"\n  Restored space-time route sequence ({len(result['route'])} action nodes, {total_swaps} batteries swapped):")
         cum_time = 0.0
         timing_issues = 0
         prev_spatial = depot
@@ -511,7 +511,7 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
             if step["grid"] == "DEPOT":
                 if idx > 0:
                     cum_time += (swap_time_c * result["route"][idx - 1]["y_swapped"] + travel_time[prev_spatial][depot])
-                print(f"    [DEPOT] 站点  物理模拟时间={cum_time:.3f}h | 模型拓扑时间={step['arrival_time']:.3f}h")
+                print(f"    [DEPOT] Station  physical simulated time={cum_time:.3f}h | model topology time={step['arrival_time']:.3f}h")
             else:
                 grid = step["grid"]
                 cum_time += travel_time[prev_spatial][grid]
@@ -521,18 +521,18 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
                 # 双向对齐校验：时空图由于右取整政策，模型时间 u 允许略微比物理时间 cum 快（即处于右对齐状态）
                 # 这是时空扩展图的天然数学特质。但在物理上，只要模型 u 没超过 T 且 u >= cum，即为绝对可行。
                 diff = model_u - cum_time
-                flag = " ⚠ 物理超时" if diff < -1e-4 else ""
+                flag = " ⚠ physical overrun" if diff < -1e-4 else ""
                 if diff < -1e-4:
                     timing_issues += 1
                     
-                print(f"    → 网格 {grid}  物理模拟累加={cum_time:.3f}h  模型联动锚定={model_u:.3f}h (换电 y={y_swap}){flag}")
+                print(f"    → Grid {grid}  physical simulated accumulation={cum_time:.3f}h  model-linked anchor={model_u:.3f}h (swap y={y_swap}){flag}")
                 cum_time += swap_time_c * y_swap
                 prev_spatial = grid
 
         if timing_issues > 0:
-            print(f"  ⚠ 发现 {timing_issues} 处物理时序逆差突破可行边界！")
+            print(f"  ⚠ Detected {timing_issues} physical-timing deficits breaching the feasibility boundary!")
         else:
-            print(f"  ✓ 时空图时序一阶偏序审计通过 | 行驶净耗时 {total_travel_time:.3f}h | 换电净耗时 {total_service_time:.3f}h | 周期总长 {makespan:.3f}h")
+            print(f"  ✓ Space-time graph first-order partial-order audit passed | net travel {total_travel_time:.3f}h | net swap {total_service_time:.3f}h | makespan {makespan:.3f}h")
 
     return result
 
@@ -542,45 +542,45 @@ def _parse_stgraph_solution(model, grids, travel_time, swap_time_c, tau_list,
 # =========================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="ST-Graph 时空图优化引擎 —— E-Bike Battery Swapping VRP",
+        description="ST-Graph space-time graph optimization engine —— E-Bike Battery Swapping VRP",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  python main_STGraph.py                                                 # 使用默认时间
-  python main_STGraph.py --datetime "2025/11/02 12:00"                   # 指定具体时间
-  python main_STGraph.py --random                                        # 随机选取可用小时
-  python main_STGraph.py --random --seed 42                              # 随机选取 (固定种子)
-  python main_STGraph.py --list-hours                                    # 列出可用小时
-  python main_STGraph.py --data path/to/other.csv                        # 指定数据文件
+Usage examples:
+  python main_STGraph.py                                                 # use default time
+  python main_STGraph.py --datetime "2025/11/02 12:00"                   # specify a concrete time
+  python main_STGraph.py --random                                        # pick an available hour at random
+  python main_STGraph.py --random --seed 42                              # random selection (fixed seed)
+  python main_STGraph.py --list-hours                                    # list available hours
+  python main_STGraph.py --data path/to/other.csv                        # specify a data file
         """,
     )
     parser.add_argument(
         "--data", type=str, default=DEFAULT_DATA_FILE,
-        help="预测数据 CSV 文件路径"
+        help="Path to the prediction-data CSV file"
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/11/02 12:00')"
+        help="Target datetime, format: 'YYYY/MM/DD HH:MM' (e.g. '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",
-        help="从可用小时中随机选取一个"
+        help="Pick one of the available hours at random"
     )
     parser.add_argument(
         "--seed", type=int, default=None,
-        help="配合 --random 使用, 固定随机种子"
+        help="Fix the random seed (used with --random)"
     )
     parser.add_argument(
         "--start", type=str, default=DATETIME_RANGE_START,
-        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+        help=f"Start time for random selection (default: {DATETIME_RANGE_START})"
     )
     parser.add_argument(
         "--end", type=str, default=DATETIME_RANGE_END,
-        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+        help=f"End time for random selection (default: {DATETIME_RANGE_END})"
     )
     parser.add_argument(
         "--list-hours", action="store_true",
-        help="列出 CSV 中所有可用小时并退出"
+        help="List all available hours in the CSV and exit"
     )
 
     args = parser.parse_args()
@@ -593,9 +593,9 @@ if __name__ == "__main__":
             end=args.end,
         )
         print("=" * 60)
-        print(f"  文件: {args.data}")
-        print(f"  时间范围: {args.start} ~ {args.end}")
-        print(f"  可用小时数: {len(hours)}")
+        print(f"  File: {args.data}")
+        print(f"  Time range: {args.start} ~ {args.end}")
+        print(f"  Available hours: {len(hours)}")
         print("=" * 60)
         for h in hours:
             print(h.strftime("%Y/%m/%d %H:%M"))
@@ -610,20 +610,20 @@ if __name__ == "__main__":
             seed=args.seed,
         )
         print("=" * 60)
-        print("  [随机] 随机选取模式 — ST-Graph 时空图优化引擎")
+        print("  [Random] Random-selection mode — ST-Graph space-time graph optimization engine")
         if args.seed is not None:
-            print(f"  随机种子: {args.seed}")
+            print(f"  Random seed: {args.seed}")
     elif args.datetime is not None:
         target_datetime = args.datetime
         print("=" * 60)
-        print("  [指定] 用户指定日期时间 — ST-Graph 时空图优化引擎")
+        print("  [Specified] User-specified datetime — ST-Graph space-time graph optimization engine")
     else:
         target_datetime = DEFAULT_TARGET_DATETIME
         print("=" * 60)
-        print("  [默认] 默认日期时间 — ST-Graph 时空图优化引擎")
+        print("  [Default] Default datetime — ST-Graph space-time graph optimization engine")
 
-    print(f"  选择的目标时间: {target_datetime}")
-    print(f"  数据文件: {args.data}")
+    print(f"  Selected target datetime: {target_datetime}")
+    print(f"  Data file: {args.data}")
     print("=" * 60)
 
     result = run_optimization_pipeline(

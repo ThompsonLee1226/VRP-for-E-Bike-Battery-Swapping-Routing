@@ -68,8 +68,10 @@ def optimize_evrp_with_stgraph(
     # 在时空图（ST-Graph）拓扑中，由于时间的物理推进直接嵌套于图的层级有向边中，
     # 传统模型必需的 BigM_mtz, BigM_sync, BigM_deadline 均在数学结构上被完全消灭。
     if progress_tracker is None:
-        print(f"  [ST-Graph 架构提示] 连续时序已成功转换为拓扑网络层级结构。")
-        print(f"  [ST-Graph 架构提示] 成功消灭所有大 M 约束，消除连续松弛严重退化的底层瓶颈。")
+        print(f"  [ST-Graph architecture note] continuous timing has been successfully "
+              f"converted into a topological network hierarchy.")
+        print(f"  [ST-Graph architecture note] all big-M constraints successfully eliminated, "
+              f"removing the underlying bottleneck of severely degenerate continuous relaxation.")
 
     # ==========================================================================
     # 0. 索引集合与空间拓扑剪枝 (KNN 邻域限制 + max_travel_time 裁剪)
@@ -142,8 +144,10 @@ def optimize_evrp_with_stgraph(
 
     total_possible_arcs = len(nodes) * (len(nodes) - 1) * len(Y_domain) * P
     if progress_tracker is None:
-        print(f"  [空间拓扑稀疏化] 活跃网格数: {len(grids)} | 设定近邻数 K={K_neighbors}")
-        print(f"  [时空图静态生成] 录入有效时空决策弧段数: {len(st_arcs)} / {total_possible_arcs} 条")
+        print(f"  [Spatial-topology sparsification] active grids: {len(grids)} | "
+              f"configured neighbors K={K_neighbors}")
+        print(f"  [Space-time graph static generation] valid space-time decision arcs "
+              f"recorded: {len(st_arcs)} / {total_possible_arcs}")
 
     # ==========================================================================
     # 1. 声明决策变量 (Decision Variables)
@@ -369,7 +373,8 @@ def optimize_evrp_with_stgraph(
                 _u_by_str[j_key].Start = tau_list[uj_s_idx]
 
         if progress_tracker is None:
-            print(f"  [Warm-Start STGraph] 成功注入时空初始网络，联锁激活有向流弧段: {st_arcs_activated} 条")
+            print(f"  [Warm-Start STGraph] successfully injected the initial space-time "
+                  f"network; directed flow arcs activated: {st_arcs_activated}")
         return True, len(route_seq) - 2
 
     warm_ok, warm_visited = _build_warm_start()
@@ -377,7 +382,8 @@ def optimize_evrp_with_stgraph(
         m.NumStart = 1
     else:
         if progress_tracker is None:
-            print("  [Warm-Start] 贪心路径不符合时空扩展裁剪图界，跳过初值注入")
+            print("  [Warm-Start] greedy path does not fit the space-time expanded "
+                  "pruning bounds, skipping initial solution injection")
 
     # ==========================================================================
     # 5. 精简求解监控管线 (Progress Monitor Callback)

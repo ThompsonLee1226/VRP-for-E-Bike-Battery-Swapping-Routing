@@ -53,7 +53,7 @@ try:
         split_train_valid,
     )
 except ImportError:
-    print("警告: 无法从 CB_Hurdle_train 导入函数，将使用内置版本")
+    print("WARNING: could not import functions from CB_Hurdle_train; using built-in versions")
     # Fallback: lightweight reimplementation
     def add_feature_engineering(df):
         df = df.copy()
@@ -83,7 +83,7 @@ except ImportError:
         """时间切分：前80%训练，后20%验证"""
         time_col = 'datetime'
         if time_col not in df.columns:
-            raise ValueError(f"缺少时间列: {time_col}")
+            raise ValueError(f"Missing time column: {time_col}")
         dt = pd.to_datetime(df[time_col], errors='coerce')
         ordered_idx = dt.sort_values().index
         split_pos = int(len(ordered_idx) * 0.8)
@@ -123,7 +123,7 @@ def scan_lightgbm(
     try:
         import lightgbm as lgb
     except ImportError:
-        print("错误: 需要安装 lightgbm。请运行: pip install lightgbm")
+        print("ERROR: lightgbm is required. Please run: pip install lightgbm")
         return pd.DataFrame()
 
     lr_list = [0.015, 0.02, 0.03, 0.05]
@@ -139,7 +139,7 @@ def scan_lightgbm(
 
     for target in targets:
         print(f"\n{'='*50}")
-        print(f"LightGBM 扫描目标: {target}")
+        print(f"LightGBM scan target: {target}")
         print(f"{'='*50}")
 
         y_raw = df_train[target].astype(float)
@@ -240,7 +240,7 @@ def scan_random_forest(
 
     for target in targets:
         print(f"\n{'='*50}")
-        print(f"Random Forest 扫描目标: {target}")
+        print(f"Random Forest scan target: {target}")
         print(f"{'='*50}")
 
         y_raw = df_train[target].astype(float)
@@ -310,23 +310,23 @@ def scan_random_forest(
 # ======================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='LightGBM / Random Forest 参数扫描')
+    parser = argparse.ArgumentParser(description='LightGBM / Random Forest parameter scan')
     parser.add_argument('--train_csv', type=str, required=True,
-                        help='训练集CSV文件路径')
+                        help='Path to the training set CSV file')
     parser.add_argument('--test_csv', type=str, default=None,
-                        help='测试集CSV文件路径（预留，当前不使用）')
+                        help='Path to the test set CSV file (reserved; not used currently)')
     parser.add_argument('--model', type=str, default='all',
                         choices=['lgb', 'rf', 'all'],
-                        help='扫描哪个模型')
+                        help='Which model to scan')
     parser.add_argument('--targets', type=str, nargs='+', default=['rent', 'return'],
-                        help='目标变量')
+                        help='Target variable(s)')
     parser.add_argument('--output_dir', type=str, default='Param_Scan_Results',
-                        help='结果输出目录')
+                        help='Directory for results output')
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    print("加载训练数据...")
+    print("Loading training data...")
     df = pd.read_csv(args.train_csv)
     cols_to_drop = ['region_code', 'Unnamed: 21']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
@@ -334,31 +334,31 @@ def main():
         df['h3'] = df['h3'].astype(str)
     df = fill_missing_values(df)
     df = add_feature_engineering(df)
-    print(f"数据形状: {df.shape}")
+    print(f"Data shape: {df.shape}")
 
     # 验证所需列
     for col in FEATURES:
         if col not in df.columns:
-            raise ValueError(f"缺少特征列: {col}")
+            raise ValueError(f"Missing feature column: {col}")
 
     if args.model in ('lgb', 'all'):
         print("\n" + "="*60)
-        print("开始 LightGBM 参数扫描")
+        print("Starting LightGBM parameter scan")
         print("="*60)
         output_csv = os.path.join(args.output_dir, 'lgb_param_scan_results.csv')
         scan_lightgbm(df, FEATURES, args.targets, output_csv)
-        print(f"\nLightGBM 扫描结果已保存至: {output_csv}")
+        print(f"\nLightGBM scan results saved to: {output_csv}")
 
     if args.model in ('rf', 'all'):
         print("\n" + "="*60)
-        print("开始 Random Forest 参数扫描")
+        print("Starting Random Forest parameter scan")
         print("="*60)
         output_csv = os.path.join(args.output_dir, 'rf_param_scan_results.csv')
         scan_random_forest(df, FEATURES, args.targets, output_csv)
-        print(f"\nRandom Forest 扫描结果已保存至: {output_csv}")
+        print(f"\nRandom Forest scan results saved to: {output_csv}")
 
     print("\n" + "="*60)
-    print("参数扫描完成。")
+    print("Parameter scan complete.")
     print("="*60)
 
 

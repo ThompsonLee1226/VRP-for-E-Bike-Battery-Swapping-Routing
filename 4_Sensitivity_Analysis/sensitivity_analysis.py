@@ -271,13 +271,13 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn,
     _tgt_dt = target_datetime or TARGET_DATETIME
 
     print(f"\n{'='*70}")
-    print(f"  敏感性扫描: {param_name}")
-    print(f"  测试范围: {param_values}")
-    print(f"  目标时间: {_tgt_dt}")
-    print(f"  固定时间上限: {FIXED_TIME_LIMIT_S}s | 固定周期: {FIXED_T_TOTAL}h")
+    print(f"  Sensitivity sweep: {param_name}")
+    print(f"  Test range: {param_values}")
+    print(f"  Target time: {_tgt_dt}")
+    print(f"  Fixed time limit: {FIXED_TIME_LIMIT_S}s | Fixed horizon: {FIXED_T_TOTAL}h")
     print(f"{'='*70}")
 
-    for idx, val in enumerate(tqdm(param_values, desc=f"扫描 {param_name}", unit="run")):
+    for idx, val in enumerate(tqdm(param_values, desc=f"Sweep {param_name}", unit="run")):
         print(f"\n--- [{idx+1}/{n_total}] {param_name} = {val} ---")
 
         kwargs = build_kwargs_fn(val)
@@ -301,7 +301,7 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn,
         try:
             result = run_optimization_pipeline(**kwargs)
         except Exception as exc:
-            print(f"  [ERROR] 求解异常: {exc}")
+            print(f"  [ERROR] Solve exception: {exc}")
             # 记录失败行
             records.append({
                 param_name: val,
@@ -338,7 +338,7 @@ def _run_single_sweep(param_name: str, param_values: list, build_kwargs_fn,
     csv_name = f"SENS_{param_name}_sweep_summary_{timestamp}.csv"
     csv_path = os.path.join(_out_dir, csv_name)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    print(f"\n  [CSV 已保存] {csv_path}")
+    print(f"\n  [CSV saved] {csv_path}")
 
     return df
 
@@ -411,8 +411,8 @@ def sweep_C_max(C_max_values: list = None,
         if not y_levels:
             y_levels = [c_max]  # 极端情况兜底: C_max 小于最小默认 y_level
         n_cut = len(DEFAULT_Y_LEVELS) - len(y_levels)
-        print(f"  [参数适配] C_max={c_max} → y_levels={y_levels} "
-              f"(固定基准{list(DEFAULT_Y_LEVELS)}, 裁剪{n_cut}个超容值)")
+        print(f"  [Parameter adaptation] C_max={c_max} → y_levels={y_levels} "
+              f"(fixed baseline {list(DEFAULT_Y_LEVELS)}, trimmed {n_cut} over-capacity values)")
         return {
             "vehicle_speed_kmh": DEFAULT_SPEED_KMH,
             "C_max": c_max,
@@ -485,13 +485,13 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None,
     _tgt_dt = target_datetime or TARGET_DATETIME
 
     print(f"\n{'='*70}")
-    print(f"  交叉项敏感性扫描: P_intervals × vehicle_speed")
+    print(f"  Cross-term sensitivity sweep: P_intervals × vehicle_speed")
     print(f"  P_intervals ∈ {P_values}")
     print(f"  vehicle_speed ∈ {speed_values}")
-    print(f"  总计 {n_total} 个组合")
-    print(f"  目标时间: {_tgt_dt}")
-    print(f"  固定: C_max={DEFAULT_C_MAX}, y_levels={list(DEFAULT_Y_LEVELS)}")
-    print(f"  固定时间上限: {FIXED_TIME_LIMIT_S}s | 固定周期: {FIXED_T_TOTAL}h")
+    print(f"  Total {n_total} combinations")
+    print(f"  Target time: {_tgt_dt}")
+    print(f"  Fixed: C_max={DEFAULT_C_MAX}, y_levels={list(DEFAULT_Y_LEVELS)}")
+    print(f"  Fixed time limit: {FIXED_TIME_LIMIT_S}s | Fixed horizon: {FIXED_T_TOTAL}h")
     print(f"{'='*70}")
 
     idx = 0
@@ -523,7 +523,7 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None,
             try:
                 result = run_optimization_pipeline(**kwargs)
             except Exception as exc:
-                print(f"  [ERROR] 求解异常: {exc}")
+                print(f"  [ERROR] Solve exception: {exc}")
                 records.append({
                     "P_intervals": p,
                     "vehicle_speed_kmh": speed,
@@ -558,7 +558,7 @@ def sweep_P_speed_cross(P_values: list = None, speed_values: list = None,
     csv_name = f"SENS_P_speed_cross_sweep_summary_{timestamp}.csv"
     csv_path = os.path.join(_out_dir, csv_name)
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    print(f"\n  [CSV 已保存] {csv_path}")
+    print(f"\n  [CSV saved] {csv_path}")
 
     return df
 
@@ -775,7 +775,7 @@ def plot_P_speed_cross(df: pd.DataFrame, plot_dir: str = ""):
       右下: 不同 P 下速度对时序偏离度影响的折线对比
     """
     if df is None or df.empty:
-        print("  [跳过] 交叉项数据为空, 无法绘图")
+        print("  [Skip] Cross-term data is empty; cannot plot.")
         return
 
     _plot_dir = plot_dir or RUN_PLOT_DIR
@@ -891,14 +891,14 @@ def plot_P_speed_cross(df: pd.DataFrame, plot_dir: str = ""):
 def print_summary_table(all_dfs: dict, output_dir: str = ""):
     """打印所有扫描的汇总对比表，并保存为 CSV。"""
     print(f"\n{'='*90}")
-    print("  敏感性分析汇总")
+    print("  Sensitivity Analysis Summary")
     print(f"{'='*90}")
 
     # 收集所有 DataFrame 合并为一个汇总表
     summary_rows = []
     for var_name, df in all_dfs.items():
         if df is None or df.empty:
-            print(f"\n  [{var_name}] 无有效数据")
+            print(f"\n  [{var_name}] no valid data")
             continue
         print(f"\n--- {var_name} ---")
         cols = [var_name, "objective", "total_swaps", "elapsed_seconds",
@@ -930,60 +930,60 @@ if __name__ == "__main__":
     # CLI 参数解析 (对齐 3_Optimization/batch_runner.py 的接口模式)
     # =========================================================================
     parser = argparse.ArgumentParser(
-        description="ST-Graph 优化模型 — 敏感性分析脚本 (One-Factor Sweep)",
+        description="ST-Graph Optimization Model — Sensitivity Analysis Script (One-Factor Sweep)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py                                      # 使用默认时间
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --datetime "2025/10/28 14:00"        # 指定具体时间
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random                             # 随机选取可用小时
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random --seed 42                   # 随机选取 (固定种子)
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --list-hours                         # 列出可用小时
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --data path/to/other.csv             # 指定数据文件
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --skip-cross                         # 跳过交叉项扫描
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --only speed swap_time               # 仅运行指定扫描
+Examples:
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py                                      # use default time
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --datetime "2025/10/28 14:00"        # specify a specific time
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random                             # randomly select an available hour
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --random --seed 42                   # random selection (fixed seed)
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --list-hours                         # list available hours
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --data path/to/other.csv             # specify a data file
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --skip-cross                         # skip the cross-term sweep
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --only speed swap_time               # run only the specified sweeps
         """,
     )
     parser.add_argument(
         "--data", type=str, default=DEFAULT_PREDICTION_FILE,
-        help=f"预测数据 CSV 文件路径 (默认: prediction_CB_Hurdle.csv)"
+        help=f"Prediction data CSV file path (default: prediction_CB_Hurdle.csv)"
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' (例如 '2025/10/28 14:00')"
+        help="Target datetime, format: 'YYYY/MM/DD HH:MM' (e.g. '2025/10/28 14:00')"
     )
     parser.add_argument(
         "--random", action="store_true",
-        help="从可用小时中随机选取一个 (范围: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
+        help="Randomly select one from the available hours (range: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
     )
     parser.add_argument(
         "--seed", type=int, default=None,
-        help="配合 --random 使用, 固定随机种子"
+        help="Use with --random to fix the random seed"
     )
     parser.add_argument(
         "--start", type=str, default=DATETIME_RANGE_START,
-        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+        help=f"Start time for random selection (default: {DATETIME_RANGE_START})"
     )
     parser.add_argument(
         "--end", type=str, default=DATETIME_RANGE_END,
-        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+        help=f"End time for random selection (default: {DATETIME_RANGE_END})"
     )
     parser.add_argument(
         "--list-hours", action="store_true",
-        help="列出 CSV 中所有可用小时并退出"
+        help="List all available hours in the CSV and exit"
     )
     parser.add_argument(
         "--output", type=str, default=None,
-        help="输出根目录 (默认: 4_Sensitivity_Analysis/Results/<timestamp>/)"
+        help="Output root directory (default: 4_Sensitivity_Analysis/Results/<timestamp>/)"
     )
     parser.add_argument(
         "--skip-cross", action="store_true",
-        help="跳过交叉项 (P_intervals × vehicle_speed) 联合扫描"
+        help="Skip the cross-term (P_intervals × vehicle_speed) joint sweep"
     )
     parser.add_argument(
         "--only", nargs="+", default=None,
         choices=["speed", "swap_time", "C_max", "P_intervals", "cross"],
-        help="仅运行指定的扫描项 (可多选)"
+        help="Run only the specified sweeps (multiple selections allowed)"
     )
 
     args = parser.parse_args()
@@ -998,9 +998,9 @@ if __name__ == "__main__":
             end=args.end,
         )
         print("=" * 60)
-        print(f"  文件: {args.data}")
-        print(f"  时间范围: {args.start} ~ {args.end}")
-        print(f"  可用小时数: {len(hours)}")
+        print(f"  Data file: {args.data}")
+        print(f"  Time range: {args.start} ~ {args.end}")
+        print(f"  Available hours: {len(hours)}")
         print("=" * 60)
         for h in hours:
             print(h.strftime("%Y/%m/%d %H:%M"))
@@ -1017,21 +1017,21 @@ if __name__ == "__main__":
             seed=args.seed,
         )
         print("=" * 60)
-        print("  [随机] 敏感性分析 — 随机选取模式")
+        print("  [Random] Sensitivity analysis - random selection mode")
         if args.seed is not None:
-            print(f"  随机种子: {args.seed}")
-        print(f"  选择的目标时间: {TARGET_DATETIME}")
+            print(f"  Random seed: {args.seed}")
+        print(f"  Selected target time: {TARGET_DATETIME}")
         print("=" * 60)
     elif args.datetime is not None:
         TARGET_DATETIME = args.datetime
         print("=" * 60)
-        print("  [指定] 敏感性分析 — 用户指定日期时间模式")
-        print(f"  选择的目标时间: {TARGET_DATETIME}")
+        print("  [Specified] Sensitivity analysis - user-specified datetime mode")
+        print(f"  Selected target time: {TARGET_DATETIME}")
         print("=" * 60)
     else:
         print("=" * 60)
-        print("  [默认] 敏感性分析 — 默认日期时间模式")
-        print(f"  选择的目标时间: {TARGET_DATETIME}")
+        print("  [Default] Sensitivity analysis - default datetime mode")
+        print(f"  Selected target time: {TARGET_DATETIME}")
         print("=" * 60)
 
     DATA_FILE = args.data
@@ -1055,14 +1055,14 @@ if __name__ == "__main__":
         run_scans.discard("cross")
 
     print("=" * 70)
-    print("  ST-Graph 优化模型 — 敏感性分析脚本")
-    print(f"  数据文件: {DATA_FILE}")
-    print(f"  目标时间: {TARGET_DATETIME}")
-    print(f"  运行时间戳: {RUN_TIMESTAMP}")
-    print(f"  结果目录: {RUN_OUTPUT_DIR}")
-    print(f"  图表目录: {RUN_PLOT_DIR}")
-    print(f"  求解时限: {FIXED_TIME_LIMIT_S}s (单次)")
-    print(f"  运行项目: {sorted(run_scans)}")
+    print("  ST-Graph Optimization Model - Sensitivity Analysis Script")
+    print(f"  Data file: {DATA_FILE}")
+    print(f"  Target time: {TARGET_DATETIME}")
+    print(f"  Run timestamp: {RUN_TIMESTAMP}")
+    print(f"  Results directory: {RUN_OUTPUT_DIR}")
+    print(f"  Plots directory: {RUN_PLOT_DIR}")
+    print(f"  Solve time limit: {FIXED_TIME_LIMIT_S}s (per run)")
+    print(f"  Sweeps to run: {sorted(run_scans)}")
     print("=" * 70)
 
     all_results = {}
@@ -1072,7 +1072,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     if "speed" in run_scans:
         print("\n" + "█" * 70)
-        print("  [阶段 1] 车速 (vehicle_speed_kmh) 敏感性扫描")
+        print("  [Stage 1] Vehicle speed (vehicle_speed_kmh) sensitivity sweep")
         print("█" * 70)
         df_speed = sweep_vehicle_speed(
             output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
@@ -1085,7 +1085,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     if "swap_time" in run_scans:
         print("\n" + "█" * 70)
-        print("  [阶段 2] 换电速率 (swap_rate) 敏感性扫描")
+        print("  [Stage 2] Swap rate (swap_rate) sensitivity sweep")
         print("█" * 70)
         df_swap = sweep_swap_time(
             output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
@@ -1098,7 +1098,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     if "C_max" in run_scans:
         print("\n" + "█" * 70)
-        print("  [阶段 3] 车载容量 (C_max) 敏感性扫描")
+        print("  [Stage 3] Vehicle battery capacity (C_max) sensitivity sweep")
         print("█" * 70)
         df_cmax = sweep_C_max(
             output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
@@ -1111,7 +1111,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     if "P_intervals" in run_scans:
         print("\n" + "█" * 70)
-        print("  [阶段 4] 时空离散段数 (P_intervals) 敏感性扫描")
+        print("  [Stage 4] Spatio-temporal discretization segments (P_intervals) sensitivity sweep")
         print("█" * 70)
         df_p = sweep_P_intervals(
             output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
@@ -1124,7 +1124,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     if "cross" in run_scans:
         print("\n" + "█" * 70)
-        print("  [阶段 5] 交叉项 (P_intervals × vehicle_speed) 联合扫描")
+        print("  [Stage 5] Cross-term (P_intervals × vehicle_speed) joint sweep")
         print("█" * 70)
         df_cross = sweep_P_speed_cross(
             output_dir=RUN_OUTPUT_DIR, target_datetime=TARGET_DATETIME)
@@ -1138,7 +1138,7 @@ if __name__ == "__main__":
     print_summary_table(all_results, output_dir=RUN_OUTPUT_DIR)
 
     print(f"\n{'='*70}")
-    print(f"  敏感性分析全部完成!")
-    print(f"  CSV 结果目录: {RUN_OUTPUT_DIR}")
-    print(f"  图表目录    : {RUN_PLOT_DIR}")
+    print(f"  Sensitivity analysis complete!")
+    print(f"  CSV results directory: {RUN_OUTPUT_DIR}")
+    print(f"  Plots directory    : {RUN_PLOT_DIR}")
     print(f"{'='*70}")

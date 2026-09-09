@@ -71,10 +71,10 @@ def optimize_evrp_with_pla(
         BigM = _max_arrival_diff + 0.1
 
     if progress_tracker is None:
-        print(f"  [BigM 自适应] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
+        print(f"  [BigM adaptive] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
               f"Deadline={BigM_deadline:.3f}  "
-              f"(原传入 {_BigM_original if _BigM_original <= 10 else '>1000'}, "
-              f"已收紧至 ≤{BigM:.3f})")
+              f"(originally passed {_BigM_original if _BigM_original <= 10 else '>1000'}, "
+              f"tightened to ≤{BigM:.3f})")
 
     # ==========================================================================
     # 0. 索引集合 & 弧段可行性预计算 (Geo-Fencing 边长裁剪)
@@ -102,9 +102,9 @@ def optimize_evrp_with_pla(
 
     total_possible = len(nodes) * (len(nodes) - 1)
     if progress_tracker is None:
-        print(f"  [Geo-Fencing 边长裁剪] 弧段: {len(arc_list)} / {total_possible} "
+        print(f"  [Geo-Fencing edge pruning] arcs: {len(arc_list)} / {total_possible} "
               f"({100*len(arc_list)/max(1,total_possible):.1f}%) "
-              f"| 阈值: ≤{max_travel_time}h")
+              f"| threshold: ≤{max_travel_time}h")
 
     # ==========================================================================
     # 1. 声明决策变量
@@ -336,7 +336,7 @@ def optimize_evrp_with_pla(
             if var is not None:
                 var.Start = 1
                 x_set += 1
-        warm_log_parts.append(f"x弧段={x_set}")
+        warm_log_parts.append(f"x-arcs={x_set}")
 
         # 访问 / 时间 / 换电量 + PLA 变量
         v_set = y_set = lam_set = 0
@@ -407,7 +407,7 @@ def optimize_evrp_with_pla(
 
         warm_log_parts.append(f"v={v_set} y={y_set} lam>0={lam_set}")
         if progress_tracker is None:
-            print(f"  [Warm-Start] 变量注入: {', '.join(warm_log_parts)}")
+            print(f"  [Warm-Start] variable injection: {', '.join(warm_log_parts)}")
 
         return True, len(route_seq) - 2
 
@@ -415,11 +415,11 @@ def optimize_evrp_with_pla(
     if warm_ok:
         m.NumStart = 1
         if progress_tracker is None:
-            print(f"  [Warm-Start] 贪心启发式注入初始可行解, "
-                  f"访问 {warm_visited} 个网格")
+            print(f"  [Warm-Start] greedy heuristic injected an initial feasible "
+                  f"solution, visiting {warm_visited} grids")
     else:
         if progress_tracker is None:
-            print("  [Warm-Start] 贪心启发式未能构造可行解, 跳过")
+            print("  [Warm-Start] greedy heuristic failed to construct a feasible solution, skipping")
 
     # ==========================================================================
     # 6. 求解执行

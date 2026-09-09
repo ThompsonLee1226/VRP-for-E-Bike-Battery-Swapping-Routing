@@ -10,7 +10,8 @@ import pandas as pd
 # ★ 选择目标日期时间: 格式 "YYYY/MM/DD HH:00"
 #    数据有效范围: 2025/10/23 12:00 ~ 2025/11/10 23:00 (445个可用小时)
 #    修改此处即可切换优化目标小时
-DEFAULT_TARGET_DATETIME = "2025/11/02 12:00"
+#    当前: 工作日晚高峰 (周三 18:00), 需求与换电机会均高于正午快照
+DEFAULT_TARGET_DATETIME = "2025/11/05 18:00"
 DATETIME_RANGE_START = "2025/10/23 12:00"
 DATETIME_RANGE_END   = "2025/11/10 23:00"
 
@@ -341,46 +342,46 @@ def build_travel_time_matrix_from_csv(file_path, target_datetime=DEFAULT_TARGET_
 # =============================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Pre_Process: 从预测 CSV 中提取指定小时的快照数据并输出摘要",
+        description="Pre_Process: extract the snapshot data for the specified hour from the prediction CSV and output a summary",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  python Pre_Process.py                                          # 使用默认时间 %s
-  python Pre_Process.py --datetime "2025/11/02 12:00"            # 指定具体时间
-  python Pre_Process.py --random                                 # 随机选取一个可用小时
-  python Pre_Process.py --random --seed 42                       # 随机选取 (固定种子)
-  python Pre_Process.py --list-hours                             # 列出所有可用小时
+Usage examples:
+  python Pre_Process.py                                          # use the default time %s
+  python Pre_Process.py --datetime "2025/11/02 12:00"            # specify a concrete time
+  python Pre_Process.py --random                                 # randomly select one available hour
+  python Pre_Process.py --random --seed 42                       # random selection (fixed seed)
+  python Pre_Process.py --list-hours                             # list all available hours
   python Pre_Process.py --list-hours --start "2025/10/24" --end "2025/10/27"
-  python Pre_Process.py --file path/to/other.csv                 # 指定其他 CSV 文件
+  python Pre_Process.py --file path/to/other.csv                 # specify another CSV file
         """ % DEFAULT_TARGET_DATETIME,
     )
     parser.add_argument(
         "--file", type=str, default=DEFAULT_PREDICTION_FILE,
-        help=f"预测数据 CSV 文件路径 (默认: {os.path.basename(DEFAULT_PREDICTION_FILE)})"
+        help=f"prediction data CSV file path (default: {os.path.basename(DEFAULT_PREDICTION_FILE)})"
     )
     parser.add_argument(
         "--datetime", type=str, default=None,
-        help="目标日期时间, 格式: 'YYYY/MM/DD HH:MM' 或 'YYYY/MM/DD HH:00' (例如 '2025/11/02 12:00')"
+        help="target datetime, format: 'YYYY/MM/DD HH:MM' or 'YYYY/MM/DD HH:00' (e.g., '2025/11/02 12:00')"
     )
     parser.add_argument(
         "--random", action="store_true",
-        help="从可用小时中随机选取一个 (范围: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
+        help="randomly select one from the available hours (range: %s ~ %s)" % (DATETIME_RANGE_START, DATETIME_RANGE_END)
     )
     parser.add_argument(
         "--seed", type=int, default=None,
-        help="配合 --random 使用, 固定随机种子以实现结果复现"
+        help="use together with --random to fix the random seed for reproducible results"
     )
     parser.add_argument(
         "--start", type=str, default=DATETIME_RANGE_START,
-        help=f"随机选取的起始时间 (默认: {DATETIME_RANGE_START})"
+        help=f"start time for the random selection (default: {DATETIME_RANGE_START})"
     )
     parser.add_argument(
         "--end", type=str, default=DATETIME_RANGE_END,
-        help=f"随机选取的结束时间 (默认: {DATETIME_RANGE_END})"
+        help=f"end time for the random selection (default: {DATETIME_RANGE_END})"
     )
     parser.add_argument(
         "--list-hours", action="store_true",
-        help="列出 CSV 中所有可用的小时并退出"
+        help="list all available hours in the CSV and exit"
     )
 
     args = parser.parse_args()
@@ -394,9 +395,9 @@ if __name__ == "__main__":
             start=args.start,
             end=args.end,
         )
-        print(f"文件: {args.file}")
-        print(f"时间范围: {args.start} ~ {args.end}")
-        print(f"可用小时数: {len(hours)}")
+        print(f"File: {args.file}")
+        print(f"Time range: {args.start} ~ {args.end}")
+        print(f"Available hours: {len(hours)}")
         print("-" * 40)
         for h in hours:
             print(h.strftime("%Y/%m/%d %H:%M"))
@@ -413,20 +414,20 @@ if __name__ == "__main__":
             seed=args.seed,
         )
         print("=" * 60)
-        print("  [随机] 随机选取模式 — 已从可用小时中随机选择")
+        print("  [Random] Random selection mode — selected randomly from the available hours")
         if args.seed is not None:
-            print(f"  随机种子: {args.seed}")
+            print(f"  Random seed: {args.seed}")
     elif args.datetime is not None:
         target_datetime = args.datetime
         print("=" * 60)
-        print("  [指定] 用户指定日期时间模式")
+        print("  [Specified] User-specified datetime mode")
     else:
         target_datetime = DEFAULT_TARGET_DATETIME
         print("=" * 60)
-        print("  [默认] 使用默认日期时间模式")
+        print("  [Default] Using the default datetime mode")
 
-    print(f"  选择的目标时间: {target_datetime}")
-    print(f"  数据文件: {args.file}")
+    print(f"  Selected target datetime: {target_datetime}")
+    print(f"  Data file: {args.file}")
     print("=" * 60)
 
     # =========================================================================
@@ -437,8 +438,8 @@ if __name__ == "__main__":
         target_datetime=target_datetime,
     )
 
-    print(f"\n  [OK] 快照加载成功")
+    print(f"\n  [OK] Snapshot loaded successfully")
     print(f"  Node count: {len(grids)}")
     print(f"  Selected hour: {pd.Timestamp(target_datetime).floor('h')}")
-    print(f"\n  前 5 个节点预览:")
+    print(f"\n  Preview of the first 5 nodes:")
     print(snapshot_df[["h3", "datetime", "rent_pred", "return_pred"]].head().to_string(index=False))

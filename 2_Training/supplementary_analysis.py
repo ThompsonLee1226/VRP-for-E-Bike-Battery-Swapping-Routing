@@ -166,7 +166,7 @@ def extract_feature_importance(
 
     csv_path = os.path.join(output_dir, 'feature_importance.csv')
     merged.to_csv(csv_path, index=False)
-    print(f"  特征重要性已保存至: {csv_path}")
+    print(f"  Feature importance saved to: {csv_path}")
 
     # 绘制对比条形图
     fig, axes = plt.subplots(1, 2, figsize=(14, 8))
@@ -187,7 +187,7 @@ def extract_feature_importance(
     fig_path = os.path.join(output_dir, 'feature_importance.png')
     fig.savefig(fig_path, dpi=150)
     plt.close(fig)
-    print(f"  特征重要性图已保存至: {fig_path}")
+    print(f"  Feature importance figure saved to: {fig_path}")
 
     return merged
 
@@ -276,7 +276,7 @@ def plot_residual_spatiotemporal(
     fig_path = os.path.join(output_dir, f'residual_analysis_{target}.png')
     fig.savefig(fig_path, dpi=150)
     plt.close(fig)
-    print(f"  残差分析图已保存至: {fig_path}")
+    print(f"  Residual analysis figure saved to: {fig_path}")
 
 
 # ======================================================================
@@ -328,14 +328,14 @@ def benchmark_cross_model(
                         'classifier_logloss': np.nan,
                     }
                     rows.append(row)
-                print(f"  已加载 {model_name} 汇总数据: {csv_path}")
+                print(f"  Loaded {model_name} summary data: {csv_path}")
             except Exception as e:
-                print(f"  警告: 无法读取 {csv_path}: {e}")
+                print(f"  WARNING: could not read {csv_path}: {e}")
 
     comparison = pd.DataFrame(rows)
     csv_path = os.path.join(output_dir, 'cross_model_comparison.csv')
     comparison.to_csv(csv_path, index=False)
-    print(f"  跨模型对比表已保存至: {csv_path}")
+    print(f"  Cross-model comparison table saved to: {csv_path}")
 
     # 绘图
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
@@ -358,7 +358,7 @@ def benchmark_cross_model(
     fig_path = os.path.join(output_dir, 'cross_model_comparison.png')
     fig.savefig(fig_path, dpi=150)
     plt.close(fig)
-    print(f"  跨模型对比图已保存至: {fig_path}")
+    print(f"  Cross-model comparison figure saved to: {fig_path}")
 
     return comparison
 
@@ -434,7 +434,7 @@ def plot_calibration(
     fig_path = os.path.join(output_dir, f'calibration_{target}.png')
     fig.savefig(fig_path, dpi=150)
     plt.close(fig)
-    print(f"  PIT校准图已保存至: {fig_path}")
+    print(f"  PIT calibration figure saved to: {fig_path}")
 
 
 # ======================================================================
@@ -485,7 +485,7 @@ def plot_learning_curves(
     fig_path = os.path.join(output_dir, f'learning_curve_{target}.png')
     fig.savefig(fig_path, dpi=150)
     plt.close(fig)
-    print(f"  学习曲线已保存至: {fig_path}")
+    print(f"  Learning curve saved to: {fig_path}")
 
 
 # ======================================================================
@@ -493,31 +493,31 @@ def plot_learning_curves(
 # ======================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Hurdle模型补充分析')
+    parser = argparse.ArgumentParser(description='Hurdle model supplementary analysis')
     parser.add_argument('--hurdle_model_dir', type=str, required=True,
-                        help='CB_Hurdle训练输出目录（包含catboost_info_*子目录）')
+                        help='CB_Hurdle training output directory (contains catboost_info_* subdirectories)')
     parser.add_argument('--test_csv', type=str, required=True,
-                        help='测试集CSV文件路径')
+                        help='Path to the test set CSV file')
     parser.add_argument('--output_dir', type=str, default='Supplementary_Analysis_Results',
-                        help='分析结果输出目录')
+                        help='Directory for analysis results')
     parser.add_argument('--lgb_csv', type=str, default=None,
-                        help='LightGBM训练汇总CSV（可选）')
+                        help='LightGBM training summary CSV (optional)')
     parser.add_argument('--rf_csv', type=str, default=None,
-                        help='Random Forest训练汇总CSV（可选）')
+                        help='Random Forest training summary CSV (optional)')
     parser.add_argument('--train_csv', type=str, default=None,
-                        help='训练集CSV路径（用于PIT校准时结合验证集）')
+                        help='Path to training set CSV (used with validation set for PIT calibration)')
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
     print(f"{'='*60}")
-    print(f"Hurdle 模型补充分析")
-    print(f"  模型目录: {args.hurdle_model_dir}")
-    print(f"  测试集:   {args.test_csv}")
-    print(f"  输出目录: {args.output_dir}")
+    print(f"Hurdle Model Supplementary Analysis")
+    print(f"  Model directory: {args.hurdle_model_dir}")
+    print(f"  Test set:        {args.test_csv}")
+    print(f"  Output directory: {args.output_dir}")
     print(f"{'='*60}\n")
 
-    # --- 加载测试数据 ---
-    print("[1/6] 加载测试数据...")
+    # --- Load test data ---
+    print("[1/6] Loading test data...")
     df_test = pd.read_csv(args.test_csv)
     cols_to_drop = ['region_code', 'Unnamed: 21']
     df_test = df_test.drop(columns=[c for c in cols_to_drop if c in df_test.columns], errors='ignore')
@@ -525,14 +525,14 @@ def main():
         df_test['h3'] = df_test['h3'].astype(str)
     df_test = fill_missing_values(df_test)
     df_test = add_feature_engineering(df_test)
-    print(f"  测试集形状: {df_test.shape}")
+    print(f"  Test set shape: {df_test.shape}")
 
-    # --- 尝试加载模型 ---
-    print("\n[2/6] 加载Hurdle模型...")
+    # --- Try to load models ---
+    print("\n[2/6] Loading Hurdle models...")
     try:
         import catboost as cb
     except ImportError:
-        print("错误: 需要安装catboost库。请运行: pip install catboost")
+        print("ERROR: the catboost package is required. Please run: pip install catboost")
         sys.exit(1)
 
     classifier_rent = None
@@ -548,10 +548,10 @@ def main():
                 cbm_files.append(os.path.join(root, f))
 
     if cbm_files:
-        print(f"  找到 {len(cbm_files)} 个.cbm模型文件")
+        print(f"  Found {len(cbm_files)} .cbm model files")
         for cbm_path in cbm_files:
             fname = os.path.basename(cbm_path)
-            print(f"    加载: {fname}")
+            print(f"    Loading: {fname}")
             model = cb.CatBoost().load_model(cbm_path)
             # 根据文件名推断类型
             if 'rent' in fname.lower() or 'rent' in cbm_path.lower():
@@ -565,16 +565,16 @@ def main():
                 else:
                     regressor_return = model
     else:
-        print("  未找到.cbm模型文件。将尝试使用元数据中的最佳迭代信息...")
-        print("  提示: 如需完整分析，请确保模型训练时设置了允许写入文件(allow_writing_files=True)")
+        print("  No .cbm model files found. Will try using best-iteration info from metadata...")
+        print("  NOTE: For full analysis, ensure the model was trained with allow_writing_files=True")
         # 此处可扩展为通过训练日志重建模型
 
     if classifier_rent is None or regressor_rent is None:
-        print("\n  警告: 未找到完整的rent模型文件。")
-        print("  部分分析（测试指标、特征重要性、PIT校准、学习曲线）将跳过rent。")
+        print("\n  WARNING: no complete rent model files found.")
+        print("  Some analyses (test metrics, feature importance, PIT calibration, learning curves) will skip rent.")
     if classifier_return is None or regressor_return is None:
-        print("  警告: 未找到完整的return模型文件。")
-        print("  部分分析将跳过return。")
+        print("  WARNING: no complete return model files found.")
+        print("  Some analyses will skip return.")
 
     # --- 逐项执行分析 ---
     for target, clf, reg in [
@@ -585,11 +585,11 @@ def main():
             continue
 
         print(f"\n{'─'*50}")
-        print(f"分析目标: {target}")
+        print(f"Analysis target: {target}")
         print(f"{'─'*50}")
 
-        # (1) 测试集指标
-        print(f"\n  [{target}] 测试集评估...")
+        # (1) Test set metrics
+        print(f"\n  [{target}] Test set evaluation...")
         metrics = evaluate_test_metrics(clf, reg, df_test, target)
         pd.DataFrame([metrics]).to_csv(
             os.path.join(args.output_dir, f'test_metrics_{target}.csv'), index=False
@@ -597,31 +597,31 @@ def main():
         for k, v in metrics.items():
             print(f"    {k}: {v:.4f}" if isinstance(v, float) else f"    {k}: {v}")
 
-        # (2) 特征重要性
-        print(f"\n  [{target}] 特征重要性...")
+        # (2) Feature importance
+        print(f"\n  [{target}] Feature importance...")
         importance_df = extract_feature_importance(clf, reg, args.output_dir)
 
-        # (3) 残差空间—时间分布
-        print(f"\n  [{target}] 残差时空分析...")
+        # (3) Residual spatiotemporal distribution
+        print(f"\n  [{target}] Residual spatiotemporal analysis...")
         plot_residual_spatiotemporal(clf, reg, df_test, target, args.output_dir)
 
-        # (5) PIT校准
-        print(f"\n  [{target}] PIT校准分析...")
+        # (5) PIT calibration
+        print(f"\n  [{target}] PIT calibration analysis...")
         try:
             plot_calibration(clf, reg, df_test, target, args.output_dir)
         except Exception as e:
-            print(f"    警告: PIT校准图生成失败: {e}")
+            print(f"    WARNING: failed to generate PIT calibration figure: {e}")
 
-        # (6) 学习曲线
-        print(f"\n  [{target}] 学习曲线...")
+        # (6) Learning curves
+        print(f"\n  [{target}] Learning curves...")
         try:
             plot_learning_curves(clf, reg, target, args.output_dir)
         except Exception as e:
-            print(f"    警告: 学习曲线生成失败: {e}")
+            print(f"    WARNING: failed to generate learning curves: {e}")
 
-    # (4) 跨模型对比
+    # (4) Cross-model comparison
     print(f"\n{'─'*50}")
-    print("跨模型对比")
+    print("Cross-model comparison")
     print(f"{'─'*50}")
     if classifier_rent and regressor_rent and classifier_return and regressor_return:
         metrics_rent = evaluate_test_metrics(classifier_rent, regressor_rent, df_test, 'rent')
@@ -632,10 +632,10 @@ def main():
             rf_summary_csv=args.rf_csv,
         )
     else:
-        print("  跳过：需要完整的rent和return模型。")
+        print("  Skipped: complete rent and return models required.")
 
     print(f"\n{'='*60}")
-    print(f"补充分析完成。所有结果已保存至: {args.output_dir}")
+    print(f"Supplementary analysis complete. All results saved to: {args.output_dir}")
     print(f"{'='*60}")
 
 

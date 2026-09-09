@@ -2,25 +2,38 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-流体近似 DES 验证 — 生灭过程 vs ODE 平滑轨迹
+Fluid-Approximation DES Validation — Birth-Death Process vs. ODE Trajectory
 =============================================================================
 
-目的: 定量验证流体(平均场)近似在"低库存 + 净流出"区间的系统性误差。
-  流体 ODE 以泊松过程期望值替换随机跳跃, 预测库存线性下降并在
-  t0 = N0/(λ-ρ) 确定性地归零; 而真实生灭过程存在方差, 可能更早缺货,
-  导致流体近似高估服务效用。本脚本通过 Monte Carlo 离散事件仿真(DES)
-  复现"阶梯状真实库存曲线", 与 ODE 平滑曲线重叠对比。
+Purpose: Quantify the systematic error of the fluid (mean-field) approximation
+in the "low-inventory + net-outflow" regime.
 
-grid 选取规则 (默认):
-  1) 0 < N0 = n_soon + n_normal <= N0_MAX(=5)    —— 低库存区间(方差显著)
-  2) λ_j > ρ_eff                                     —— 净流出(否则永不缺货)
-  3) t0 = N0/(λ_j - ρ_eff) < T(=1h)                  —— 缺货发生在规划期内
-  优先取 N0 最小(相对方差最大); 次优 t0 靠近中段使对比清晰。
+  The fluid ODE replaces the stochastic Poisson jumps by their expectation,
+  predicting a deterministic, nearly-flat inventory trajectory
+  N(t) = N0 + (rho - lam)*t that hits zero at the MEAN stockout time
+  t0 = N0/(lam-rho). The real birth-death process is a discrete random walk:
+  even when t0 is LONG (>> the 1h planning horizon), low-inventory grids carry
+  a significant probability of stocking out EARLY (within 1h) due to variance.
+  This early-stockout tail is exactly what the ODE ignores.
 
-运行方式:
+Key findings to check (per grid):
+  - Trajectory panel: the ODE is a flat deterministic line; the DES shows
+    discrete "staircase" sample paths with spread (variance) around it.
+  - Histogram panel: distribution of stockout times within the 1h horizon,
+    with P(T0<1h) quantifying the early-stockout tail risk.
+
+Grid selection rule:
+  1) 0 < N0 = n_soon + n_normal <= N0_MAX(=5)   -- low inventory (variance matters)
+  2) lam > rho_eff                                -- net outflow (eventual stockout)
+  Stratified by N0 level: pick one grid per integer level, evenly spread across
+  1..N0_MAX, to show the early-stockout tail risk decaying as N0 grows (O(1/N)).
+  Within each level, pick the grid with the smallest t0 (largest net outflow).
+  (Deliberately NO t0<T requirement — early stockout despite t0>>T is the point.)
+
+Usage:
   python 4_Sensitivity_Analysis/des_fluid_validation.py
-  python 4_Sensitivity_Analysis/des_fluid_validation.py --datetime "2025/10/23 12:00"
-  python 4_Sensitivity_Analysis/des_fluid_validation.py --n0-max 8 --top-k 3 --reps 1000
+  python 4_Sensitivity_Analysis/des_fluid_validation.py --datetime "2025/11/05 18:00"
+  python 4_Sensitivity_Analysis/des_fluid_validation.py --n0-max 5 --top-k 3 --reps 2000
 =============================================================================
 """
 
@@ -53,12 +66,13 @@ RESULTS_DIR = os.path.join(SCRIPT_DIR, "Results", "des_validation")
 
 
 def simulate_birth_death(N0, rho_eff, lam, T, rng):
-    """Gillespie 生灭过程仿真一次。
+    """One Gillespie birth-death replication over horizon T.
 
-    状态 N(t) = 可服务库存(soon+normal)。事件:
-      - 到达(率 rho_eff): N += 1
-      - 离开(率 lam, 仅 N>0): N -= 1
-    返回 (t_events, N_events, t_stockout): t_stockout 为首次 N 归零时刻(或 None)。
+    State N(t) = serviceable inventory (soon + normal). Events:
+      - arrival  (rate rho_eff): N += 1
+      - departure (rate lam, only if N > 0): N -= 1
+    Returns (t_events, N_events, t_stockout): t_stockout is the first time N
+    hits 0 (or None if it never stocks out within T).
     """
     t = 0.0
     N = N0
@@ -91,13 +105,20 @@ def simulate_birth_death(N0, rho_eff, lam, T, rng):
     return np.asarray(t_events), np.asarray(N_events), t_stockout
 
 
-def select_candidate_grids(grid_params, T=1.0, n0_max=5.0, top_k=3):
-    """按默认规则选取低库存候选 grid。
+def select_candidate_grids(grid_params, n0_max=5.0, top_k=3):
+    """Select low-inventory + net-outflow grids, stratified by N0 level.
 
-    到达率使用 rho_eff = ρ × (θ_soon + θ_normal), 与 Grid_Utility 中
-    calculate_operational_utility 的 rho_j_pure 一致 (因 theta 已归一化,
-    数值上等于 raw ρ)。"""
-    candidates = []
+    We deliberately do NOT require t0 < T: the point is that grids with a LONG
+    mean stockout time t0 = N0/(lam-rho) >> T can still stock out EARLY within
+    the horizon due to variance — the tail risk the ODE ignores.
+
+    Picks ONE representative grid per integer N0 level (1..n0_max), evenly
+    spread across the range, so the figure shows how the early-stockout tail
+    risk decays as N0 grows (the O(1/N) error scaling). Within each level we
+    pick the grid with the smallest t0 (largest net outflow lambda-rho), i.e.
+    the most stockout-prone grid at that inventory level.
+    """
+    by_level = {}
     for j, p in grid_params.items():
         n0 = float(p["n_soon"]) + float(p["n_normal"])
         lam = float(p["lam"])
@@ -107,24 +128,31 @@ def select_candidate_grids(grid_params, T=1.0, n0_max=5.0, top_k=3):
         if lam <= rho_eff:
             continue
         t0 = n0 / (lam - rho_eff)
-        if t0 >= T:
-            continue
-        candidates.append({"grid": j, "n0": n0, "lam": lam, "rho_eff": rho_eff, "t0": t0})
+        lvl = max(1, int(round(n0)))
+        cand = {"grid": j, "n0": n0, "lam": lam, "rho_eff": rho_eff, "t0": t0}
+        if lvl not in by_level or t0 < by_level[lvl]["t0"]:
+            by_level[lvl] = cand
 
-    # 优先 N0 最小(相对方差最大); 次优 t0 靠近中段(0.5*T)使对比清晰
-    candidates.sort(key=lambda c: (c["n0"], abs(c["t0"] - 0.5 * T)))
-    return candidates[:top_k]
+    levels = sorted(by_level.keys())
+    if len(levels) <= top_k:
+        chosen = levels
+    else:
+        idxs = np.unique(np.linspace(0, len(levels) - 1, top_k).round().astype(int))
+        chosen = [levels[i] for i in idxs]
+
+    return [by_level[lvl] for lvl in chosen]
 
 
 def main():
-    parser = argparse.ArgumentParser(description="DES 流体近似验证")
+    parser = argparse.ArgumentParser(description="DES fluid-approximation validation")
     parser.add_argument("--data", type=str, default=DEFAULT_PREDICTION_FILE)
     parser.add_argument("--datetime", type=str, default=None)
     parser.add_argument("--random", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n0-max", type=float, default=5.0)
-    parser.add_argument("--top-k", type=int, default=3)
-    parser.add_argument("--reps", type=int, default=1000)
+    parser.add_argument("--top-k", type=int, default=3,
+                        help="number of N0 strata to sample (evenly spread across 1..n0-max)")
+    parser.add_argument("--reps", type=int, default=2000)
     parser.add_argument("--list-hours", action="store_true")
     args = parser.parse_args()
 
@@ -138,53 +166,52 @@ def main():
     else:
         target_datetime = args.datetime or DEFAULT_TARGET_DATETIME
 
-    T = 1.0
+    T = 1.0  # planning horizon (hours)
     rng = np.random.default_rng(args.seed)
 
     grids, grid_params, _ = prepare_optimize_inputs(args.data, target_datetime=target_datetime)
-    cands = select_candidate_grids(grid_params, T=T, n0_max=args.n0_max, top_k=args.top_k)
+    cands = select_candidate_grids(grid_params, n0_max=args.n0_max, top_k=args.top_k)
 
     if not cands:
-        print(f"[警告] 快照 {target_datetime} 下无 grid 满足默认规则 "
-              f"(N0<={args.n0_max} 且 λ>ρ_eff 且 t0<T)。")
-        print("        建议: 增大 --n0-max (如 8), 或更换 --datetime。")
+        print(f"[WARNING] No grid satisfies the rule at {target_datetime} "
+              f"(0<N0<={args.n0_max} and lam>rho_eff).")
+        print("          Hint: raise --n0-max (e.g. 8), or change --datetime.")
         return
 
     print("=" * 72)
-    print(f"  DES 流体近似验证 — {target_datetime}")
-    print(f"  入选 grid (按 N0 升序):")
+    print(f"  DES fluid-approximation validation — {target_datetime}")
+    print(f"  Selected grids (stratified by N0 level):")
     for c in cands:
-        print(f"    grid={c['grid']}  N0={c['n0']:.1f}  λ={c['lam']:.3f}  "
-              f"ρ_eff={c['rho_eff']:.3f}  t0(ODE)={c['t0']:.3f}h")
+        print(f"    grid={c['grid']}  N0={c['n0']:.1f}  lam={c['lam']:.3f}  "
+              f"rho_eff={c['rho_eff']:.3f}  t0(ODE mean)={c['t0']:.1f}h")
     print("=" * 72)
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     n = len(cands)
-    fig, axes = plt.subplots(1, n, figsize=(5.5 * n, 4.2), squeeze=False)
+    fig, axes = plt.subplots(2, n, figsize=(5.5 * n, 8.0), squeeze=False)
     summary_rows = []
 
     for ax_idx, c in enumerate(cands):
-        ax = axes[0, ax_idx]
+        ax_traj = axes[0, ax_idx]
+        ax_hist = axes[1, ax_idx]
         n0 = c["n0"]
         lam = c["lam"]
         rho_eff = c["rho_eff"]
         t0_ode = c["t0"]
 
-        # ODE 平滑曲线: N(t) = N0 + (rho_eff - lam)*t, 截断于 t0
-        t_ode = np.linspace(0.0, t0_ode, 200)
+        # ---- ODE smooth curve over [0, T] (nearly flat when net drift is small)
+        t_ode = np.linspace(0.0, T, 200)
         n_ode = n0 + (rho_eff - lam) * t_ode
 
-        # Monte Carlo 仿真
+        # ---- Monte Carlo simulation over the 1h horizon
         t_grid = np.linspace(0.0, T, 500)
         stockout_times = []
-        horizons = []
         N_samples = []
         sample_paths = []
         for r in range(args.reps):
             te, ne, ts = simulate_birth_death(n0, rho_eff, lam, T, rng)
             stockout_times.append(ts)
-            horizons.append(ts if ts is not None else T)
             N_samples.append(np.interp(t_grid, te, ne))
             if r < 8:
                 sample_paths.append((te, ne))
@@ -194,54 +221,76 @@ def main():
         N_low = np.percentile(N_samples, 5, axis=0)
         N_high = np.percentile(N_samples, 95, axis=0)
 
-        # 少数样本阶梯路径
+        # ---- Trajectory panel
         for te, ne in sample_paths:
-            ax.step(te, ne, where='post', alpha=0.22, lw=0.8, color='tab:blue')
+            ax_traj.step(te, ne, where='post', alpha=0.22, lw=0.8, color='tab:blue')
+        ax_traj.plot(t_ode, n_ode, color='tab:red', lw=2.0, label='ODE (fluid approx.)')
+        ax_traj.plot(t_grid, N_mean, color='tab:green', lw=2.0, label='DES empirical mean')
+        ax_traj.fill_between(t_grid, N_low, N_high, alpha=0.15, color='tab:green',
+                             label='5%–95% band')
+        ax_traj.set_xlabel('Time t (h)')
+        ax_traj.set_ylabel('Serviceable inventory N(t)')
+        ax_traj.set_title(f"grid {c['grid']}\nN0={n0:.1f}, lam={lam:.3f}, rho={rho_eff:.3f}",
+                          fontsize=10)
+        ax_traj.legend(fontsize=7)
+        ax_traj.set_xlim(0, T)
+        ax_traj.set_ylim(bottom=0)
 
-        ax.plot(t_ode, n_ode, color='tab:red', lw=2.0, label='ODE (流体近似)')
-        ax.plot(t_grid, N_mean, color='tab:green', lw=2.0, label='DES 经验均值')
-        ax.fill_between(t_grid, N_low, N_high, alpha=0.15, color='tab:green', label='5%–95% 分位带')
-        ax.axvline(t0_ode, color='tab:red', ls='--', lw=1.0, alpha=0.7)
-        ax.set_xlabel('时间 t (h)')
-        ax.set_ylabel('可服务库存 N(t)')
-        ax.set_title(f"grid {c['grid']}\nN0={n0:.1f}, λ={lam:.3f}, ρ={rho_eff:.3f}")
-        ax.legend(fontsize=7)
-        ax.set_xlim(0, T)
-        ax.set_ylim(bottom=0)
+        # ---- Statistics
+        finite = np.array([ts for ts in stockout_times if ts is not None], dtype=float)
+        n_censored = sum(1 for ts in stockout_times if ts is None)
+        p_stockout_1h = 1.0 - n_censored / args.reps
+        mean_early = float(np.mean(finite)) if finite.size else float('nan')
+        median_early = float(np.median(finite)) if finite.size else float('nan')
 
-        # 统计
-        early_prob = float(np.mean(
-            [1.0 if ts is not None and ts < t0_ode - 1e-9 else 0.0 for ts in stockout_times]
-        ))
-        stockout_cond = [ts for ts in stockout_times if ts is not None]
-        mean_stockout = float(np.mean(stockout_cond)) if stockout_cond else float('nan')
-        mean_horizon = float(np.mean(horizons))
-        rel_gap = 1.0 - mean_horizon / t0_ode
+        # ---- Stockout histogram panel (early stockouts within the 1h horizon)
+        if finite.size:
+            ax_hist.hist(finite, bins=30, range=(0.0, T), color='tab:blue',
+                         alpha=0.6, edgecolor='white', linewidth=0.4)
+        # mark the ODE mean t0 if on-scale, else annotate it
+        if t0_ode <= T:
+            ax_hist.axvline(t0_ode, color='tab:red', ls='--', lw=1.5,
+                            label=f't0 (ODE mean) = {t0_ode:.2f}h')
+        else:
+            ax_hist.annotate(f't0 (ODE mean) = {t0_ode:.1f}h  (off-scale)',
+                             xy=(0.98, 0.95), xycoords='axes fraction',
+                             ha='right', va='top', fontsize=8, color='tab:red')
+        ax_hist.axvspan(0.0, T, color='tab:red', alpha=0.04)
+        ax_hist.set_xlabel('Stockout time T0 within horizon (h)')
+        ax_hist.set_ylabel('Frequency')
+        ax_hist.set_title(f"Early stockout within 1h (N0={n0:.1f})\n"
+                          f"P(T0<1h)={p_stockout_1h:.2f}, median={median_early:.3f}h",
+                          fontsize=10)
+        if t0_ode <= T:
+            ax_hist.legend(fontsize=7)
+        ax_hist.set_xlim(0, T)
+
         summary_rows.append({
             "grid": c["grid"], "n0": n0, "lam": lam, "rho_eff": rho_eff,
-            "t0_ode_h": round(t0_ode, 4),
-            "early_stockout_prob": round(early_prob, 4),
-            "mean_stockout_h": round(mean_stockout, 4),
-            "mean_service_horizon_h": round(mean_horizon, 4),
-            "horizon_rel_gap": round(rel_gap, 4),
+            "t0_ode_h": round(t0_ode, 2),
+            "p_stockout_1h": round(p_stockout_1h, 4),
+            "mean_early_h": round(mean_early, 4),
+            "median_early_h": round(median_early, 4),
         })
 
     fig.tight_layout()
     png_path = os.path.join(RESULTS_DIR, "des_vs_ode.png")
     fig.savefig(png_path, dpi=150)
-    print(f"\n  图已保存: {png_path}")
+    print(f"\n  Figure saved: {png_path}")
 
-    # 汇总统计
-    print("\n  汇总统计:")
-    header = (f"{'grid':>18s} {'N0':>5s} {'λ':>7s} {'ρ_eff':>7s} {'t0(ODE)':>8s} "
-              f"{'P(提前缺货)':>12s} {'均值缺货h':>10s} {'服务期收缩':>10s}")
+    # ---- Summary table
+    print("\n  Summary statistics:")
+    header = (f"{'grid':>18s} {'N0':>5s} {'lam':>7s} {'rho':>7s} {'t0(ODE)':>8s} "
+              f"{'P(T0<1h)':>9s} {'medEarly':>9s} {'meanEarly':>9s}")
     print(header)
     print("-" * len(header))
     for r in summary_rows:
         print(f"{r['grid']:>18s} {r['n0']:>5.1f} {r['lam']:>7.3f} {r['rho_eff']:>7.3f} "
-              f"{r['t0_ode_h']:>8.3f} {r['early_stockout_prob']:>12.3f} "
-              f"{r['mean_stockout_h']:>10.3f} {r['horizon_rel_gap']:>10.3f}")
-    print("\n  解读: '服务期收缩' > 0 表示流体近似高估了可服务时长(即高估服务效用)。")
+              f"{r['t0_ode_h']:>8.2f} {r['p_stockout_1h']:>9.3f} "
+              f"{r['median_early_h']:>9.3f} {r['mean_early_h']:>9.3f}")
+    print("\n  Reading: 'P(T0<1h)' is the early-stockout tail risk that the deterministic")
+    print("  fluid ODE (which uses the fixed mean t0) ignores. A large P(T0<1h) despite a")
+    print("  long t0(ODE) means the grid can stock out well before its predicted mean time.")
 
 
 if __name__ == "__main__":

@@ -13,9 +13,12 @@ M6 元启发式基线 — 贪心最近邻构造 + 2-opt 局部搜索 (Greedy + L
 仅依赖 numpy / pandas, 不调用 Gurobi 求解器。用于量化 STGraph 相对
 元启发式的 "最优性溢价 (Optimality Premium)"。
 
+输出与 M1-M5 走同一套 MetricsCollector + export_experiment_result 管线,
+可直接由 batch_runner.py 统一调用, 实现 M1-M6 一键对比。
+
 运行方式:
-  python 3_Optimization/main_heuristic.py                          # 默认时间
-  python 3_Optimization/main_heuristic.py --datetime "2025/11/02 12:00"  # 指定时间
+  python 3_Optimization/main_heuristic.py                                   # 默认时间
+  python 3_Optimization/main_heuristic.py --datetime "2025/11/05 18:00"     # 指定时间 (工作日晚高峰)
   python 3_Optimization/main_heuristic.py --random --seed 42
 =============================================================================
 """
@@ -25,7 +28,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-import json
 import argparse
 import numpy as np
 
@@ -46,6 +48,12 @@ from Pre_Process import (
     generate_offline_utility_matrix,
 )
 from Grid_Utility import calculate_operational_utility
+from experiment_utils import (
+    GurobiProgressTracker,
+    MetricsCollector,
+    export_experiment_result,
+    compute_utility_split,
+)
 
 # =============================================================================
 # 常量 (与 main_STGraph.py 保持一致)
@@ -276,8 +284,165 @@ def two_opt_local_search(route, travel_time, Omega, tau_list, C_max, T_total, sw
     return route, best
 
 
+# =============================================================================
+# 统一输出管线 (与 M1-M5 走同一套 MetricsCollector + export_experiment_result)
+# =============================================================================
+def run_heuristic_pipeline(
+    data_file=DEFAULT_PREDICTION_FILE,
+    target_datetime=DEFAULT_TARGET_DATETIME,
+    depot_lat=None,
+    depot_lon=None,
+    vehicle_speed_kmh=SPEED_KMH,
+    C_max=C_MAX,
+    T_total=T_TOTAL,
+    P_intervals=P_INTERVALS,
+    y_levels=None,
+    swap_time_c=SWAP_TIME_C,
+    max_travel_time=MAX_TRAVEL_TIME,
+    K_neighbors=K_NEIGHBORS,
+    output_dir=OUTPUT_DIR,
+    verbose=True,
+    experiment_id="M6",
+    instance_name="default",
+):
+    """一站式执行贪心 + 2-opt 元启发式, 返回与 main_STGraph 同构的结果字典。"""
+    _Y = list(y_levels) if y_levels is not None else Y_LEVELS
+
+    collector = MetricsCollector(
+        experiment_id=experiment_id,
+        instance_name=instance_name,
+        config={
+            "C_max": C_max, "T_total": T_total, "P_intervals": P_intervals,
+            "K_neighbors": K_neighbors, "vehicle_speed_kmh": vehicle_speed_kmh,
+        },
+    )
+
+    if verbose:
+        print(f"[{experiment_id}] data={os.path.basename(data_file)} | C={C_max} T={T_total} "
+              f"P={P_intervals} Y={{{min(_Y)}..{max(_Y)}}} KNN(K={K_neighbors}) | "
+              f"speed={vehicle_speed_kmh}km/h")
+
+    # Step 1: 快照 + 参数
+    grids, grid_params, snapshot_df = prepare_optimize_inputs(data_file, target_datetime=target_datetime)
+    grid_coords = extract_grid_coordinates(snapshot_df)
+    if depot_lat is None or depot_lon is None:
+        depot_lat = float(np.mean([c[0] for c in grid_coords.values()]))
+        depot_lon = float(np.mean([c[1] for c in grid_coords.values()]))
+
+    # Step 2: 效用张量
+    Omega, tau_list = generate_offline_utility_matrix(
+        grids=grids, C_max=C_max, T_total=T_total, P_intervals=P_intervals,
+        grid_params=grid_params, calc_utility_func=calculate_operational_utility,
+        y_levels=_Y,
+    )
+
+    # Step 3: Geo-Fencing
+    active_grids = filter_zero_utility_grids(grids, Omega)
+    active_params = {j: grid_params[j] for j in active_grids if j in grid_params}
+
+    # Step 4: 旅行时间矩阵
+    travel_time = build_full_travel_time_matrix(active_grids, grid_coords, depot_lat, depot_lon, vehicle_speed_kmh)
+
+    # Step 5: KNN 空间图
+    nodes = [0] + active_grids
+    spatial_neighbors = build_spatial_neighbors(nodes, travel_time, K_neighbors, max_travel_time, T_total)
+
+    t_start = time.perf_counter()
+
+    # Step 6: 贪心构造 + 2-opt 局部搜索
+    route, greedy_obj = greedy_construction(
+        active_grids, travel_time, spatial_neighbors, Omega, tau_list,
+        C_max, T_total, swap_time_c, _Y,
+    )
+    route, (obj, total_swaps, makespan, details) = two_opt_local_search(
+        route, travel_time, Omega, tau_list, C_max, T_total, swap_time_c, _Y,
+    )
+
+    elapsed = time.perf_counter() - t_start
+    visited = [g for (g, _, _) in details]
+
+    # Step 7: 效用分流 (soon/low/normal) + 路由记录
+    util_soon = util_low = util_normal = 0.0
+    route_records = []
+    for (g, arr, y) in details:
+        rec = {"grid": str(g), "arrival_time": round(arr, 4), "y_swapped": int(y)}
+        if y > 0 and g in active_params:
+            split = compute_utility_split(u_j=arr, y_j=y, grid_params=active_params[g], T_total=T_total)
+            util_soon += split["soon"]
+            util_low += split["low"]
+            util_normal += split["normal"]
+            rec["utility_soon"] = split["soon"]
+            rec["utility_low"] = split["low"]
+            rec["utility_normal"] = split["normal"]
+        route_records.append(rec)
+
+    total_travel = sum(travel_time[route[i]][route[i + 1]] for i in range(len(route) - 1))
+    total_service = total_swaps * swap_time_c
+
+    # 采集指标 (与 M1-M5 同构)
+    collector.solve_status = "LOCAL_OPTIMAL"
+    collector.objective_value = round(obj, 6)
+    collector.cpu_time_s = round(elapsed, 4)
+    collector.num_visited_grids = len(visited)
+    collector.total_swaps = int(total_swaps)
+    collector.total_travel_time_hrs = round(total_travel, 4)
+    collector.total_service_time_hrs = round(total_service, 4)
+    collector.makespan_hrs = round(makespan, 4)
+    collector.route_length = len(route) - 1
+    collector.utility_soon = round(util_soon, 4)
+    collector.utility_low = round(util_low, 4)
+    collector.utility_normal = round(util_normal, 4)
+    total_split = util_soon + util_low + util_normal
+    if total_split > 0:
+        collector.soon_ratio = util_soon / total_split
+    collector.num_vars = 0
+    collector.num_constrs = 0
+    collector.bb_nodes = 0
+
+    result = {
+        "model": None,
+        "grids": active_grids,
+        "travel_time": travel_time,
+        "Omega": Omega,
+        "tau_list": tau_list,
+        "status": "LOCAL_OPTIMAL (Greedy+2-opt)",
+        "objective": round(obj, 6),
+        "greedy_objective": round(greedy_obj, 6),
+        "route": route_records,
+        "visited_grids": visited,
+        "summary": {
+            "num_visited": len(visited),
+            "total_swaps": int(total_swaps),
+            "total_travel_time_hrs": round(total_travel, 4),
+            "total_service_time_hrs": round(total_service, 4),
+            "makespan_hrs": round(makespan, 4),
+            "route_length": len(route) - 1,
+            "utility_soon": round(util_soon, 6),
+            "utility_normal": round(util_normal, 6),
+            "utility_low": round(util_low, 6),
+        },
+        "collector": collector,
+        "elapsed_seconds": elapsed,
+        "grid_params": active_params,
+    }
+
+    if verbose:
+        print(f"  [M6] Greedy obj={greedy_obj:.4f} -> 2-opt obj={obj:.4f} | "
+              f"visited={len(visited)} | swaps={int(total_swaps)} | "
+              f"makespan={makespan:.3f}h | {elapsed:.3f}s")
+
+    # 统一导出 (与 M1-M5 相同的 JSON/CSV/route 落盘)
+    progress = GurobiProgressTracker(label=experiment_id)
+    export_experiment_result(collector, progress, result, output_dir, verbose=verbose)
+
+    return result
+
+
+# =============================================================================
+# CLI 入口
+# =============================================================================
 def main():
-    parser = argparse.ArgumentParser(description="M6 元启发式基线: Greedy + 2-opt")
+    parser = argparse.ArgumentParser(description="M6 Meta-heuristic baseline: Greedy + 2-opt")
     parser.add_argument("--data", type=str, default=DEFAULT_PREDICTION_FILE)
     parser.add_argument("--datetime", type=str, default=None)
     parser.add_argument("--random", action="store_true")
@@ -296,76 +461,14 @@ def main():
     else:
         target_datetime = args.datetime or DEFAULT_TARGET_DATETIME
 
-    t_start = time.perf_counter()
-
-    # 1) 快照 + 参数
-    grids, grid_params, snapshot_df = prepare_optimize_inputs(args.data, target_datetime=target_datetime)
-    grid_coords = extract_grid_coordinates(snapshot_df)
-    depot_lat = float(np.mean([c[0] for c in grid_coords.values()]))
-    depot_lon = float(np.mean([c[1] for c in grid_coords.values()]))
-
-    # 2) 效用张量
-    Omega, tau_list = generate_offline_utility_matrix(
-        grids=grids, C_max=C_MAX, T_total=T_TOTAL, P_intervals=P_INTERVALS,
-        grid_params=grid_params, calc_utility_func=calculate_operational_utility,
-        y_levels=Y_LEVELS,
+    run_heuristic_pipeline(
+        data_file=args.data,
+        target_datetime=target_datetime,
+        output_dir=args.output,
+        verbose=True,
+        experiment_id="M6",
+        instance_name="default",
     )
-
-    # 3) Geo-Fencing
-    active_grids = filter_zero_utility_grids(grids, Omega)
-
-    # 4) 旅行时间矩阵
-    travel_time = build_full_travel_time_matrix(active_grids, grid_coords, depot_lat, depot_lon, SPEED_KMH)
-
-    # 5) KNN 空间图
-    nodes = [0] + active_grids
-    spatial_neighbors = build_spatial_neighbors(nodes, travel_time, K_NEIGHBORS, MAX_TRAVEL_TIME, T_TOTAL)
-
-    # 6) 贪心构造
-    route, greedy_obj = greedy_construction(
-        active_grids, travel_time, spatial_neighbors, Omega, tau_list,
-        C_MAX, T_TOTAL, SWAP_TIME_C, Y_LEVELS,
-    )
-
-    # 7) 2-opt 局部搜索
-    route, (obj, total_swaps, makespan, details) = two_opt_local_search(
-        route, travel_time, Omega, tau_list, C_MAX, T_TOTAL, SWAP_TIME_C, Y_LEVELS,
-    )
-
-    elapsed = time.perf_counter() - t_start
-    visited = route[1:-1]
-
-    result = {
-        "experiment_id": "M6",
-        "instance_name": "default",
-        "target_datetime": str(target_datetime),
-        "solve_status": "LOCAL_OPTIMAL (Greedy+2-opt)",
-        "objective_value": round(obj, 6),
-        "greedy_objective": round(greedy_obj, 6),
-        "cpu_time_s": round(elapsed, 4),
-        "mip_gap_pct": None,
-        "num_visited_grids": len(visited),
-        "total_swaps": int(total_swaps),
-        "makespan_hrs": round(makespan, 4),
-        "route": [{"grid": "DEPOT" if g == 0 else str(g),
-                   "arrival_time": arr if g != 0 else None,
-                   "y_swapped": y if g != 0 else 0}
-                  for (g, arr, y) in details],
-    }
-
-    print("=" * 70)
-    print(f"  M6 元启发式基线 (Greedy + 2-opt) — {target_datetime}")
-    print(f"  活跃grid: {len(active_grids)} | 贪心目标: {greedy_obj:.4f} "
-          f"| 2-opt后目标: {obj:.4f} | 耗时: {elapsed:.3f}s")
-    print(f"  访问grid: {len(visited)} | 换电总量: {total_swaps} | makespan: {makespan:.3f}h")
-    print("=" * 70)
-
-    os.makedirs(args.output, exist_ok=True)
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    json_path = os.path.join(args.output, f"M6_default_{ts}_metrics.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-    print(f"  [导出] {json_path}")
 
 
 if __name__ == "__main__":

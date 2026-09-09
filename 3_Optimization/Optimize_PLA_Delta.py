@@ -70,10 +70,10 @@ def optimize_evrp_with_pla_delta(
         BigM = _max_arrival_diff + 0.1
 
     if progress_tracker is None:
-        print(f"  [BigM 自适应] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
+        print(f"  [BigM adaptive] MTZ={BigM_mtz:.3f}  Sync={BigM_sync:.3f}  "
               f"Deadline={BigM_deadline:.3f}  "
-              f"(原传入 {_BigM_original if _BigM_original <= 10 else '>1000'}, "
-              f"已收紧至 ≤{BigM:.3f})")
+              f"(originally passed {_BigM_original if _BigM_original <= 10 else '>1000'}, "
+              f"tightened to ≤{BigM:.3f})")
 
     # ==========================================================================
     # 0. Index Sets & Feasible Arcs
@@ -101,9 +101,9 @@ def optimize_evrp_with_pla_delta(
 
     total_possible = len(nodes) * (len(nodes) - 1)
     if progress_tracker is None:
-        print(f"  [Geo-Fencing] 弧段: {len(arc_list)} / {total_possible} "
+        print(f"  [Geo-Fencing] arcs: {len(arc_list)} / {total_possible} "
               f"({100*len(arc_list)/max(1,total_possible):.1f}%) "
-              f"| 阈值: ≤{max_travel_time}h")
+              f"| threshold: ≤{max_travel_time}h")
 
     # ==========================================================================
     # 0b. Precompute Delta-Omega (increments) and Delta-Tau (interval widths)
@@ -445,7 +445,7 @@ def optimize_evrp_with_pla_delta(
 
         warm_log_parts.append(f"v={v_set} y={y_set}")
         if progress_tracker is None:
-            print(f"  [Warm-Start Delta] 变量注入: {', '.join(warm_log_parts)}")
+            print(f"  [Warm-Start Delta] variable injection: {', '.join(warm_log_parts)}")
 
         return True, len(route_seq) - 2
 
@@ -453,11 +453,11 @@ def optimize_evrp_with_pla_delta(
     if warm_ok:
         m.NumStart = 1
         if progress_tracker is None:
-            print(f"  [Warm-Start] 贪心启发式注入初始可行解, "
-                  f"访问 {warm_visited} 个网格")
+            print(f"  [Warm-Start] greedy heuristic injected an initial feasible "
+                  f"solution, visiting {warm_visited} grids")
     else:
         if progress_tracker is None:
-            print("  [Warm-Start] 贪心启发式未能构造可行解, 跳过")
+            print("  [Warm-Start] greedy heuristic failed to construct a feasible solution, skipping")
 
     # ==========================================================================
     # 6. Solve
