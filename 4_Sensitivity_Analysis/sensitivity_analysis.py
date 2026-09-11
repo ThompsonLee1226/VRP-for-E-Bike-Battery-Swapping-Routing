@@ -21,7 +21,7 @@
 
 运行方式:
   python 4_Sensitivity_Analysis/sensitivity_analysis.py                                      # 使用默认时间
-  python 4_Sensitivity_Analysis/sensitivity_analysis.py --datetime "2025/10/28 14:00"        # 指定具体时间
+  python 4_Sensitivity_Analysis/sensitivity_analysis.py --datetime "2025/11/05 18:00"        # 指定具体时间
   python 4_Sensitivity_Analysis/sensitivity_analysis.py --random                             # 随机选取可用小时
   python 4_Sensitivity_Analysis/sensitivity_analysis.py --random --seed 42                   # 随机选取 (固定种子)
   python 4_Sensitivity_Analysis/sensitivity_analysis.py --list-hours                         # 列出可用小时
