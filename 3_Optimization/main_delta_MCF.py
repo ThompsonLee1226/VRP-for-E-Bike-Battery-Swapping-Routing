@@ -52,6 +52,15 @@ DEFAULT_Y_LEVELS = list(range(1, 11))               # 离散换电量: 1~10 (原
 # =========================================================================
 # Geo-Fencing 优化: 零效用节点过滤
 # =========================================================================
+# ---------------------------------------------------------------------------
+# 效用零判定的数值容差。
+# U_j 由多次 exp()/pow() 组合而成，真实效用恰为 0 的网格可能算出 ~1e-16 的残差；
+# 用严格 `> 0` 会把这类浮点噪声误判为真实效用（实测误留 15 个网格，均为 rho_j=0）。
+# 依据命题 Z 的推论：U_j ≡ 0  ⟺  max_u (N_low(u) + N_soon(u)) = 0。
+# ---------------------------------------------------------------------------
+UTILITY_ZERO_TOL = 1e-9
+
+
 def filter_zero_utility_grids(grids, Omega, grid_params, grid_coords=None):
     """剔除在所有 (y, s) 组合下效用均为 0 的网格。"""
     active_grids = []
@@ -59,7 +68,7 @@ def filter_zero_utility_grids(grids, Omega, grid_params, grid_coords=None):
         has_utility = False
         for y_val in Omega[j]:
             for s_val in Omega[j][y_val]:
-                if Omega[j][y_val][s_val] > 0:
+                if Omega[j][y_val][s_val] > UTILITY_ZERO_TOL:
                     has_utility = True
                     break
             if has_utility:
