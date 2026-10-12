@@ -176,14 +176,22 @@ class MetricsCollector:
 
     def record_solve(self, progress: GurobiProgressTracker, elapsed_s: float,
                      model=None):
-        """从进度追踪器和 Gurobi 模型采集求解效率指标。"""
+        """从进度追踪器和 Gurobi 模型采集求解效率指标。
+
+        `progress` 允许为 None: 某些调用方会关闭进度追踪器。 这里必须容忍,
+        否则 `progress.gap()` 抛出 "'NoneType' object has no attribute 'gap'",
+        并且是在 MIP 已经解完之后才抛出 —— 整条流水线被判为失败、路线丢失,
+        但 elapsed_s 却显示求解耗了 170s+ (2026-10-02 那次 objective_comparison
+        全军覆没就是这个原因)。
+        """
         self.cpu_time_s = elapsed_s
-        self.mip_gap_pct = progress.gap()
-        self.best_obj = progress.final_obj()
-        self.best_bound = progress.final_bound()
-        self.bb_nodes = progress.final_nodes()
-        self.first_feasible_time_s = progress.first_feasible_time
-        self.root_lp_value = progress.root_lp_value
+        if progress is not None:
+            self.mip_gap_pct = progress.gap()
+            self.best_obj = progress.final_obj()
+            self.best_bound = progress.final_bound()
+            self.bb_nodes = progress.final_nodes()
+            self.first_feasible_time_s = progress.first_feasible_time
+            self.root_lp_value = progress.root_lp_value
 
         if model is not None:
             try:
@@ -202,8 +210,13 @@ class MetricsCollector:
                 self.num_vars = model.NumVars
                 self.num_constrs = model.NumConstrs
                 self.num_binary = model.NumBinVars
-                self.num_continuous = model.NumVars - model.NumBinVars - model.NumIntVars
-                self.num_integer = model.NumIntVars
+                # Gurobi 的 NumIntVars **把 0-1 变量也算进去**。 旧写法
+                #   num_continuous = NumVars - NumBinVars - NumIntVars
+                # 在几乎全 0-1 的模型上会得到负数 (STGraph-MIP 上导出了
+                # num_continuous = -2437559), 论文表格里若引用就是错的。
+                # 正确分解: continuous = 非整数变量; integer = 一般整数 (不含 0-1)。
+                self.num_continuous = model.NumVars - model.NumIntVars
+                self.num_integer = model.NumIntVars - model.NumBinVars
             except Exception:
                 pass
 

@@ -268,17 +268,43 @@ def run_optimization_pipeline(
         if verbose:
             print("\n  [Stop] No grid yields positive utility under the current slice; canceling dispatch.")
         collector.solve_status = "SKIPPED"
-        return {
+        skip_result = {
             "model": None, "grids": [], "travel_time": travel_time,
             "Omega": Omega, "tau_list": tau_list,
             "status": "SKIPPED — all grids zero-utility", "objective": 0.0, "route": [],
+            "summary": {}, "visited_grids": [], "num_st_arcs": 0,
             "collector": collector,
+            # 与成功路径保持同样的键集合, 下游 (policy_comparison /
+            # objective_comparison) 才能用同一套 .get() 读, 不必分叉。
+            "pruning_stats": {
+                "original_grids": original_grid_count,
+                "active_grids": 0,
+                "removed_zero_utility": removed_zeros,
+                "total_arcs_possible": total_possible_arcs,
+                "feasible_arcs": feasible_arcs_count,
+                "max_travel_time_h": max_travel_time,
+                "geo_fencing_enabled": geo_fencing,
+                "knn_enabled": knn_enabled,
+                "K_neighbors": K_neighbors if knn_enabled else 0,
+            },
         }
+        collector.record_solution(skip_result)
+        # 落盘。 旧代码在剪枝为空时直接 return, 输出目录里什么都不写 ——
+        # 事后无法区分"被剪枝合法跳过"和"脚本崩在半路"。
+        # (alt_objectives 的 lost 目标在峰值时段恒为零、target 在低需求时段系数
+        #  全非正, 都会走到这条分支。)
+        export_experiment_result(collector, GurobiProgressTracker(label=experiment_id),
+                                 skip_result, output_dir, verbose=verbose)
+        return skip_result
 
     # ===== Step 5: 调用时空图底座引擎求解 =====
     # 根据消融设置调整 K_neighbors
     _effective_K = K_neighbors if knn_enabled else 99999
-    progress = GurobiProgressTracker(label=experiment_id) if verbose else None
+    # NOTE: the tracker must exist even when verbose=False.  collector.record_solve()
+    # reads progress.gap()/final_obj()/... unconditionally, so gating the tracker on
+    # `verbose` made every non-verbose run die with
+    # "'NoneType' object has no attribute 'gap'".
+    progress = GurobiProgressTracker(label=experiment_id)
     if verbose:
         knn_info = f"K={_effective_K}" if knn_enabled else "K=∞ (ablation mode)"
         print(f"[Solve] Starting Space-Time Graph optimization engine | KNN={knn_info}...")
@@ -309,6 +335,25 @@ def run_optimization_pipeline(
         grid_params=active_params, T_total=T_total, verbose=verbose
     )
 
+    # 剪枝统计与时空弧数必须在 record_solution() **之前**挂到 result 上:
+    # record_solution() 从 result["pruning_stats"] / result["num_st_arcs"] 读取,
+    # 旧代码把这两段赋值放在 record_solution() 之后, 于是导出的 metrics.json 里
+    # original_grid_count / active_grid_count / removed_zero_utility /
+    # feasible_arc_count / num_st_arcs 全部是 0 (661 个网格、剪枝到 481 个的事实
+    # 一个都没进档案)。
+    result["pruning_stats"] = {
+        "original_grids": original_grid_count,
+        "active_grids": len(active_grids),
+        "removed_zero_utility": removed_zeros,
+        "total_arcs_possible": total_possible_arcs,
+        "feasible_arcs": feasible_arcs_count,
+        "max_travel_time_h": max_travel_time,
+        "geo_fencing_enabled": geo_fencing,
+        "knn_enabled": knn_enabled,
+        "K_neighbors": K_neighbors if knn_enabled else 0,
+    }
+    result["num_st_arcs"] = len(model._st_arcs) if hasattr(model, '_st_arcs') else 0
+
     # 采集解质量与剪枝指标
     collector.record_solution(result)
 
@@ -325,18 +370,6 @@ def run_optimization_pipeline(
     result["grid_params"] = active_params
     result["elapsed_seconds"] = t_elapsed
     result["collector"] = collector
-    result["pruning_stats"] = {
-        "original_grids": original_grid_count,
-        "active_grids": len(active_grids),
-        "removed_zero_utility": removed_zeros,
-        "total_arcs_possible": total_possible_arcs,
-        "feasible_arcs": feasible_arcs_count,
-        "max_travel_time_h": max_travel_time,
-        "geo_fencing_enabled": geo_fencing,
-        "knn_enabled": knn_enabled,
-        "K_neighbors": K_neighbors if knn_enabled else 0,
-    }
-    result["num_st_arcs"] = len(model._st_arcs) if hasattr(model, '_st_arcs') else 0
 
     # ── Route visualization ──────────────────────────────────────
     if result["route"]:
